@@ -1,5 +1,9 @@
 setup.py
-s2m/__init__.py
+data_loaders/__init__.py
+data_loaders/dataset.py
+data_loaders/utils/__init__.py
+data_loaders/utils/opt.py
+model/__init__.py
 s2m.egg-info/PKG-INFO
 s2m.egg-info/SOURCES.txt
 s2m.egg-info/dependency_links.txt

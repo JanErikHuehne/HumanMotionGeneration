@@ -4,7 +4,9 @@ import numpy as np
 import os 
 from os.path import join as pjoin
 import random
-from s2m.s2m.utils.opt import get_opt 
+from .utils.opt import get_opt 
+import logging
+from tqdm import tqdm
 from PIL import Image
 from PIL.ImageOps import grayscale
 from torchvision.transforms import GaussianBlur, RandomRotation, ToTensor, Compose
@@ -16,7 +18,7 @@ class Sketch2MotionDataset(data.Dataset):
         self.std = std
         self.opt = opt
         self.transform = transform
-        data_dict = {}
+        self.data_dict = {}
         id_list = []
         new_name_list = []
         with open(data_file, "r") as f:
@@ -25,16 +27,21 @@ class Sketch2MotionDataset(data.Dataset):
                 id_list.append(line.strip())
 
 
-        for name in id_list:
+        for name in tqdm(id_list):
             motion = pjoin(opt.motion_dir, name + '.npy')
             sketch_dir = pjoin(opt.condition_root, name)
             sketch_data_paths = os.listdir(sketch_dir)
             for sketch in sketch_data_paths:
-                new_name = random.choise('ABCDEFGHIJKLMNOPQRSTUVW') + "_" + name
-                while new_name in data_dict:
-                    new_name = random.choice('ABCDEFGHIJKLMNOPQRSTUVW') + '_' + name
-                
-                data_dict[new_name] = {'motion': motion,
+                i = 0
+                new_name = str(i) + "_" + name
+                while new_name in self.data_dict:
+                    i += 1
+                    try:
+                        new_name = str(i) + '_' + name
+                    except Exception:
+                        print(len(sketch_data_paths))
+                        print("Too many files!")
+                self.data_dict[new_name] = {'motion': motion,
                                        'sketch': sketch}
                 new_name_list.append(new_name)
         name_list = sorted(new_name_list)
@@ -80,15 +87,14 @@ class Sketch2MotionDataset(data.Dataset):
 
 
 class HumanML3D(data.Dataset):
-    def __init__(self, mode, split="train", datapath="", **kwargs):
-        self.mode = mode
+    def __init__(self, split="train", datapath="", **kwargs):
         self.dataset_name = 't2m'
         self.dataname = 't2m'
 
         abs_base_path = f"."
 
         dataset_opt_path = pjoin(abs_base_path, datapath)
-
+        print(dataset_opt_path)
         opt = get_opt(dataset_opt_path, device=None)
         opt.model_dir = pjoin(abs_base_path, opt.model_dir)
         opt.data_root = pjoin(abs_base_path, opt.data_root)
@@ -104,12 +110,12 @@ class HumanML3D(data.Dataset):
 
         self.split_file = pjoin(opt.data_root, f'{split}.txt')
 
-        self.t2m_dataset = Sketch2MotionDataset(self.opt, self.mean, self.std, self.split_file)
+        self.t2m_dataset = Sketch2MotionDataset(self.mean, self.std, self.opt, self.split_file)
 
 
-        def __getitem__(self, item):
-            return self.t2m_dataset.__getitem__(item)
+    def __getitem__(self, item):
+        return self.t2m_dataset.__getitem__(item)
         
-        def __len__(self):
-            return self.t2m_dataset.__len__()
+    def __len__(self):
+        return self.t2m_dataset.__len__()
         

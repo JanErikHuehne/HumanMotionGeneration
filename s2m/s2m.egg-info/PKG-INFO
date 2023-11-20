@@ -5,7 +5,7 @@ Summary: A package to train a Diffusion Model fro Sketch 2 Motion Generation
 Home-page: https://github.com/JanErikHuehne/HumanMotionGeneration
 Author: Jan-Erik Hühne
 Author-email: jan.huehne@tum.de
-License: BSD 2-clause
+License: MIT
 Classifier: Development Status :: 1 - Planning
 Classifier: Intended Audience :: Science/Research
 Classifier: License :: OSI Approved :: BSD License

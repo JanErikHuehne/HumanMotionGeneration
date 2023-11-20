@@ -1,4 +1,4 @@
-from setuptools import setup 
+from setuptools import setup, find_packages
 
 setup(
     name='s2m',
@@ -7,8 +7,9 @@ setup(
     url='https://github.com/JanErikHuehne/HumanMotionGeneration',
     author='Jan-Erik Hühne',
     author_email='jan.huehne@tum.de',
-    license='BSD 2-clause',
-    packages=['s2m'],
+    license='MIT',
+    py_modules=['data_loaders', 'model'],
+    packages=find_packages(),
     install_requires=[],
 
     classifiers=[
