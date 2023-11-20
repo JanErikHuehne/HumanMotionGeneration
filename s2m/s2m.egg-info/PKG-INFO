@@ -1,0 +1,14 @@
+Metadata-Version: 2.1
+Name: s2m
+Version: 0.1.0
+Summary: A package to train a Diffusion Model fro Sketch 2 Motion Generation
+Home-page: https://github.com/JanErikHuehne/HumanMotionGeneration
+Author: Jan-Erik Hühne
+Author-email: jan.huehne@tum.de
+License: BSD 2-clause
+Classifier: Development Status :: 1 - Planning
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: BSD License
+Classifier: Operating System :: POSIX :: Linux
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.7
