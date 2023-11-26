@@ -8,6 +8,7 @@ dataset_name: t2m
 decomp_name: Decomp_SP001_SM001_H512
 dim_att_vec: 512
 dim_dec_hidden: 1024
+epochs: 100
 dim_movement2_dec_hidden: 512
 dim_movement_dec_hidden: 512
 dim_movement_enc_hidden: 512

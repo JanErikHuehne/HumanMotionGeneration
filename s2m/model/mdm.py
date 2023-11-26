@@ -26,6 +26,29 @@ class MDM(nn.Module):
                                                               activation = self.activation
                                                               )
             self.seqTransEncoder = nn.TransformerEncoder(seqTransEncoderLayer, num_layers=self.num_layers)
+    
+
+    def forward(self, x, y, timesteps):
+        """
+        x: [batch_size, n_joints, n_feats, frames] x_t in the MDM paper
+        timesteps: [batch_size] (int)
+        """
+
+        emb = self.embed_timestep(timesteps) # yields [1, bs, d]
+
+        # HERE WE ADD THE ENCODING OF OUR 2D-SKETCHES
+        enc_sketch = self.encode_sketch(y)
+        emb +=  enc_sketch
+
+
+        x = self.input_process(x)
+        xseq = torch.cat((emb, x), axis=0)  # [seqlen+1, bs, d]
+        xseq = self.sequence_pos_encoder(xseq) # [seqlen+1, bs, d]
+        output = self.seqTransEncoder(xseq)[1:] # [seqlen, bs, d]
+
+
+        output = self.output_process(output) # [bs, n_joints, nfeas, n_frames]
+        return output
 
 
 class TimestepEmbedder(nn.Module):
@@ -64,7 +87,12 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:x.shape[0], :]
         return self.dropout(x)
 
+
 class InputProcess(nn.Module):
+    """
+    This class represents the linear layer that mapps the joint motion distribution 
+    into the expected latent dimension of the transformer model 
+    """
     def __init__(self, data_rep, input_feats, latent_dim):
         super().__init__()
         self.data_rep = data_rep
@@ -89,3 +117,36 @@ class InputProcess(nn.Module):
             return torch.cat((first_pose, vel), axis=0)  # [seqlen, bs, d]
         else:
             raise ValueError
+
+
+class OutputProcess(nn.Module):
+    """
+    This class represents the linear mapping from the transformer output back into 
+    the pose joint representation 
+    """
+    def __init__(self, data_rep, input_feats, latent_dim, njoints, nfeats):
+        super().__init__()
+        self.data_rep = data_rep
+        self.input_feats = input_feats
+        self.latent_dim = latent_dim
+        self.njoints = njoints
+        self.nfeats = nfeats
+        self.poseFinal = nn.Linear(self.latent_dim, self.input_feats)
+        if self.data_rep == 'rot_vel':
+            self.velFinal = nn.Linear(self.latent_dim, self.input_feats)
+
+    def forward(self, output):
+        nframes, bs, d = output.shape
+        if self.data_rep in ['rot6d', 'xyz', 'hml_vec']:
+            output = self.poseFinal(output)  # [seqlen, bs, 150]
+        elif self.data_rep == 'rot_vel':
+            first_pose = output[[0]]  # [1, bs, d]
+            first_pose = self.poseFinal(first_pose)  # [1, bs, 150]
+            vel = output[1:]  # [seqlen-1, bs, d]
+            vel = self.velFinal(vel)  # [seqlen-1, bs, 150]
+            output = torch.cat((first_pose, vel), axis=0)  # [seqlen, bs, 150]
+        else:
+            raise ValueError
+        output = output.reshape(nframes, bs, self.njoints, self.nfeats)
+        output = output.permute(1, 2, 3, 0)  # [bs, njoints, nfeats, nframes]
+        return output

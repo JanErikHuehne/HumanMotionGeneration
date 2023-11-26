@@ -18,6 +18,7 @@ class Sketch2MotionDataset(data.Dataset):
         self.std = std
         self.opt = opt
         self.transform = transform
+        self.motion_length=60
         self.data_dict = {}
         id_list = []
         new_name_list = []
@@ -29,10 +30,15 @@ class Sketch2MotionDataset(data.Dataset):
 
         for name in tqdm(id_list):
             motion = pjoin(opt.motion_dir, name + '.npy')
+            motion_length = np.load(motion).shape[0]
+            if motion_length < self.motion_length:
+                continue
             sketch_dir = pjoin(opt.condition_root, name)
             sketch_data_paths = os.listdir(sketch_dir)
             for sketch in sketch_data_paths:
                 i = 0
+                sketch_frame = str(sketch).split("_")[-1].split(".png")[0]
+                
                 new_name = str(i) + "_" + name
                 while new_name in self.data_dict:
                     i += 1
@@ -42,7 +48,9 @@ class Sketch2MotionDataset(data.Dataset):
                         print(len(sketch_data_paths))
                         print("Too many files!")
                 self.data_dict[new_name] = {'motion': motion,
-                                       'sketch': sketch}
+                                       'sketch': pjoin(sketch_dir,sketch),
+                                       'sketch_frame': int(sketch_frame)}
+    
                 new_name_list.append(new_name)
         name_list = sorted(new_name_list)
         self.name_list = name_list
@@ -53,7 +61,7 @@ class Sketch2MotionDataset(data.Dataset):
     def __len__(self):
         return len(self.data_dict)
     
-    def transform(self, img):
+    def transform_img(self, img):
         """
         Data Augmentation Transform 
         img: PIL Image object
@@ -71,9 +79,26 @@ class Sketch2MotionDataset(data.Dataset):
         return transforms(img)
 
 
-    def __getitem__(self, item):
+    def __getitem__(self, item, **kwargs):
         data = self.data_dict[self.name_list[item]]
         motion, sketch = np.load(data["motion"]), Image.open(data["sketch"])
+        max_length = motion.shape[0]
+        # Check if half of the motion size fits after the sketch
+        half_length = int((self.motion_length/2))
+        fits_after = (max_length-data["sketch_frame"]-1) -half_length 
+        fits_before = data["sketch_frame"] - half_length
+        # Create a window around the frame
+        if fits_after > 0 and fits_before > 0: 
+            motion = motion[data["sketch_frame"]-half_length:data["sketch_frame"]+half_length]
+        # If window does not fit in front, we talk available frames in front and will the 
+        # overlay with frames from the behind the sketch
+        elif fits_after > 0 and fits_before < 0:
+            motion = motion[:self.motion_length]
+        # If the window does not fit behind, we take available frames from in front of the frame
+        else: 
+            motion = motion[-self.motion_length:]
+    
+            
         m_length = motion.shape[0]
         m_length = (m_length // self.opt.unit_length - 1) * self.opt.unit_length
 
@@ -82,8 +107,8 @@ class Sketch2MotionDataset(data.Dataset):
 
         # Z Norm 
         motion = (motion -self.mean) / self.std
-        sketch = self.transform(sketch)
-        
+        sketch = self.transform_img(sketch)[0, ...]
+        return motion, sketch
 
 
 class HumanML3D(data.Dataset):
@@ -97,7 +122,7 @@ class HumanML3D(data.Dataset):
         print(dataset_opt_path)
         opt = get_opt(dataset_opt_path, device=None)
         opt.model_dir = pjoin(abs_base_path, opt.model_dir)
-        opt.data_root = pjoin(abs_base_path, opt.data_root)
+        opt.data_root = os.path.abspath(pjoin(abs_base_path, opt.data_root))
         opt.condition_root = pjoin(opt.data_root, "sketches")
         opt.motion_dir = pjoin(opt.data_root,"new_joint_vecs")
         opt.save_root = pjoin(abs_base_path, opt.save_root)
