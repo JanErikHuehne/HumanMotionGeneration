@@ -107,7 +107,7 @@ class Sketch2MotionDataset(data.Dataset):
 
         # Z Norm 
         motion = (motion -self.mean) / self.std
-        sketch = self.transform_img(sketch)[0, ...]
+        sketch = self.transform_img(sketch)
         return motion, sketch
 
 
