@@ -290,7 +290,7 @@ class GaussianDiffusion:
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def p_mean_variance(
-        self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None
+        self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None, sketch=None
     ):
         """
         Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
@@ -317,54 +317,48 @@ class GaussianDiffusion:
 
         B, C = x.shape[:2]
         assert t.shape == (B,)
-        model_output = model(x, self._scale_timesteps(t), **model_kwargs)
-
-        if 'inpainting_mask' in model_kwargs['y'].keys() and 'inpainted_motion' in model_kwargs['y'].keys():
-            inpainting_mask, inpainted_motion = model_kwargs['y']['inpainting_mask'], model_kwargs['y']['inpainted_motion']
-            assert self.model_mean_type == ModelMeanType.START_X, 'This feature supports only X_start pred for mow!'
-            assert model_output.shape == inpainting_mask.shape == inpainted_motion.shape
-            model_output = (model_output * ~inpainting_mask) + (inpainted_motion * inpainting_mask)
+        # model_output = model(x, self._scale_timesteps(t), **model_kwargs)
+        x1 = torch.squeeze(x, dim=0)
+        x1 = x1.permute((1, 2, 0))
+        model_output = model(x1, sketch, self._scale_timesteps(t), **model_kwargs)
+        model_output = torch.unsqueeze(model_output, dim=0)
+        model_output = model_output.permute((0, 3, 1, 2)) #[1, 263, 1, 82],[bs,n_joints, n_feats, frames]
+        # if 'inpainting_mask' in model_kwargs['y'].keys() and 'inpainted_motion' in model_kwargs['y'].keys():
+        #     inpainting_mask, inpainted_motion = model_kwargs['y']['inpainting_mask'], model_kwargs['y']['inpainted_motion']
+        #     assert self.model_mean_type == ModelMeanType.START_X, 'This feature supports only X_start pred for mow!'
+        #     assert model_output.shape == inpainting_mask.shape == inpainted_motion.shape
+        #     model_output = (model_output * ~inpainting_mask) + (inpainted_motion * inpainting_mask)
             # print('model_output', model_output.shape, model_output)
             # print('inpainting_mask', inpainting_mask.shape, inpainting_mask[0,0,0,:])
             # print('inpainted_motion', inpainted_motion.shape, inpainted_motion)
 
-        if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
-            assert model_output.shape == (B, C * 2, *x.shape[2:])
-            model_output, model_var_values = th.split(model_output, C, dim=1)
-            if self.model_var_type == ModelVarType.LEARNED:
-                model_log_variance = model_var_values
-                model_variance = th.exp(model_log_variance)
-            else:
-                min_log = _extract_into_tensor(
-                    self.posterior_log_variance_clipped, t, x.shape
-                )
-                max_log = _extract_into_tensor(np.log(self.betas), t, x.shape)
-                # The model_var_values is [-1, 1] for [min_var, max_var].
-                frac = (model_var_values + 1) / 2
-                model_log_variance = frac * max_log + (1 - frac) * min_log
-                model_variance = th.exp(model_log_variance)
-        else:
-            model_variance, model_log_variance = {
-                # for fixedlarge, we set the initial (log-)variance like so
-                # to get a better decoder log likelihood.
-                ModelVarType.FIXED_LARGE: (
-                    np.append(self.posterior_variance[1], self.betas[1:]),
-                    np.log(np.append(self.posterior_variance[1], self.betas[1:])),
-                ),
-                ModelVarType.FIXED_SMALL: (
-                    self.posterior_variance,
-                    self.posterior_log_variance_clipped,
-                ),
-            }[self.model_var_type]
+        # if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
+        #     assert model_output.shape == (B, C * 2, *x.shape[2:])
+        #     model_output, model_var_values = th.split(model_output, C, dim=1)
+        #     if self.model_var_type == ModelVarType.LEARNED:
+        #         model_log_variance = model_var_values
+        #         model_variance = th.exp(model_log_variance)
+        #     else:
+        #         min_log = _extract_into_tensor(
+        #             self.posterior_log_variance_clipped, t, x.shape
+        #         )
+        #         max_log = _extract_into_tensor(np.log(self.betas), t, x.shape)
+        #         # The model_var_values is [-1, 1] for [min_var, max_var].
+        #         frac = (model_var_values + 1) / 2
+        #         model_log_variance = frac * max_log + (1 - frac) * min_log
+        #         model_variance = th.exp(model_log_variance)
+        # else:
+        model_variance, model_log_variance = self.posterior_variance, self.posterior_log_variance_clipped,
+        model_variance = _extract_into_tensor(model_variance, t, x.shape)
+        model_log_variance = _extract_into_tensor(model_log_variance, t, x.shape)
             # print('model_variance', model_variance)
             # print('model_log_variance',model_log_variance)
             # print('self.posterior_variance', self.posterior_variance)
             # print('self.posterior_log_variance_clipped', self.posterior_log_variance_clipped)
             # print('self.model_var_type', self.model_var_type)
 
-
-            model_variance = _extract_into_tensor(model_variance, t, x.shape)
-            model_log_variance = _extract_into_tensor(model_log_variance, t, x.shape)
+            # model_variance = _extract_into_tensor(model_variance, t, x.shape)
+            # model_log_variance = _extract_into_tensor(model_log_variance, t, x.shape)
 
         def process_xstart(x):
             if denoised_fn is not None:
@@ -374,23 +368,11 @@ class GaussianDiffusion:
                 return x.clamp(-1, 1)
             return x
 
-        if self.model_mean_type == ModelMeanType.PREVIOUS_X:
-            pred_xstart = process_xstart(
-                self._predict_xstart_from_xprev(x_t=x, t=t, xprev=model_output)
-            )
-            model_mean = model_output
-        elif self.model_mean_type in [ModelMeanType.START_X, ModelMeanType.EPSILON]:  # THIS IS US!
-            if self.model_mean_type == ModelMeanType.START_X:
-                pred_xstart = process_xstart(model_output)
-            else:
-                pred_xstart = process_xstart(
-                    self._predict_xstart_from_eps(x_t=x, t=t, eps=model_output)
-                )
-            model_mean, _, _ = self.q_posterior_mean_variance(
-                x_start=pred_xstart, x_t=x, t=t
-            )
-        else:
-            raise NotImplementedError(self.model_mean_type)
+
+        pred_xstart = process_xstart(model_output)
+        model_mean, _, _ = self.q_posterior_mean_variance(
+            x_start=pred_xstart, x_t=x, t=t
+        )
 
         assert (
             model_mean.shape == model_log_variance.shape == pred_xstart.shape == x.shape
@@ -518,6 +500,7 @@ class GaussianDiffusion:
         cond_fn=None,
         model_kwargs=None,
         const_noise=False,
+        sketch=None
     ):
         """
         Sample x_{t-1} from the model at the given timestep.
@@ -540,11 +523,12 @@ class GaussianDiffusion:
             model,
             x,
             t,
+            sketch=sketch,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
             model_kwargs=model_kwargs,
         )
-        noise = th.randn_like(x)
+        noise = th.randn_like(out["mean"])
         # print('const_noise', const_noise)
         if const_noise:
             noise = noise[[0]].repeat(x.shape[0], 1, 1, 1)
@@ -627,6 +611,7 @@ class GaussianDiffusion:
         cond_fn_with_grad=False,
         dump_steps=None,
         const_noise=False,
+        sketch=None
     ):
         """
         Generate samples from the model.
@@ -659,7 +644,7 @@ class GaussianDiffusion:
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
             cond_fn=cond_fn,
-            model_kwargs=model_kwargs,
+            # model_kwargs=model_kwargs,
             device=device,
             progress=progress,
             skip_timesteps=skip_timesteps,
@@ -667,6 +652,7 @@ class GaussianDiffusion:
             randomize_class=randomize_class,
             cond_fn_with_grad=cond_fn_with_grad,
             const_noise=const_noise,
+            sketch=sketch
         )):
             if dump_steps is not None and i in dump_steps:
                 dump.append(deepcopy(sample["sample"]))
@@ -691,6 +677,7 @@ class GaussianDiffusion:
         randomize_class=False,
         cond_fn_with_grad=False,
         const_noise=False,
+        sketch=None
     ):
         """
         Generate samples from the model and yield intermediate samples from
@@ -708,8 +695,8 @@ class GaussianDiffusion:
         else:
             img = th.randn(*shape, device=device)
 
-        if skip_timesteps and init_image is None:
-            init_image = th.zeros_like(img)
+        # if skip_timesteps and init_image is None:
+        #     init_image = th.zeros_like(img)
 
         indices = list(range(self.num_timesteps - skip_timesteps))[::-1]
 
@@ -725,12 +712,9 @@ class GaussianDiffusion:
 
         for i in indices:
             t = th.tensor([i] * shape[0], device=device)
-            if randomize_class and 'y' in model_kwargs:
-                model_kwargs['y'] = th.randint(low=0, high=model.num_classes,
-                                               size=model_kwargs['y'].shape,
-                                               device=model_kwargs['y'].device)
+
             with th.no_grad():
-                sample_fn = self.p_sample_with_grad if cond_fn_with_grad else self.p_sample
+                sample_fn = self.p_sample
                 out = sample_fn(
                     model,
                     img,
@@ -738,6 +722,7 @@ class GaussianDiffusion:
                     clip_denoised=clip_denoised,
                     denoised_fn=denoised_fn,
                     cond_fn=cond_fn,
+                    sketch=sketch,
                     model_kwargs=model_kwargs,
                     const_noise=const_noise,
                 )
