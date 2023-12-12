@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import clip
+from model.rotation2xyz import Rotation2xyz
+
 
 
 class MDM(nn.Module):
@@ -19,12 +21,14 @@ class MDM(nn.Module):
             self.num_layers = num_layers
             self.input_feats = 263
             self.njoints = 263
+            self.dataset = 'humanml'
             self.nfeats = 1
             self.input_process = InputProcess(self.input_feats, self.latent_dim)
             self.output_process = OutputProcess(self.input_feats, self.latent_dim, self.njoints,
                                                 self.nfeats)
             self.sequence_pos_encoder = PositionalEncoding(self.latent_dim, self.dropout)
             self.embed_timestep = TimestepEmbedder(self.latent_dim, self.sequence_pos_encoder)
+            self.rot2xyz = Rotation2xyz(device='cpu', dataset=self.dataset)
 
             seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=latent_dim,
                                                               nhead=self.num_heads,
@@ -72,7 +76,7 @@ class Sketch_Embedder(nn.Module):
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.sketch_embed = nn.Sequential(
-                            nn.Conv2d(in_channels=9, out_channels=32, kernel_size=3),
+                            nn.Conv2d(in_channels=11, out_channels=32, kernel_size=3),
                             nn.ReLU(),
                             nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
                             nn.ReLU(),
