@@ -2,3 +2,5 @@ sketches
 dataset/HumanML3D
 __pycache__/
 build/
+body_models/smplh
+body_models/dmpls
