@@ -1,10 +1,10 @@
 from os.path import join as pjoin
 
-from s2m.data_loaders.humanml.common.skeleton import Skeleton
+from data_loaders.humanml.common.skeleton import Skeleton
 import numpy as np
 import os
-from s2m.data_loaders.humanml.common.quaternion import *
-from s2m.data_loaders.humanml.utils.paramUtil import *
+from data_loaders.humanml.common.quaternion import *
+from data_loaders.humanml.utils.paramUtil import *
 
 import torch
 from tqdm import tqdm

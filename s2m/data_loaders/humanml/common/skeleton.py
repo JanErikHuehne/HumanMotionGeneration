@@ -1,4 +1,4 @@
-from s2m.data_loaders.humanml.common.quaternion import *
+from data_loaders.humanml.common.quaternion import *
 import scipy.ndimage.filters as filters
 
 class Skeleton(object):

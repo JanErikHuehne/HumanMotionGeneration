@@ -1,6 +1,7 @@
 from argparse import Namespace
 import re
 from os.path import join as pjoin
+import os
 
 
 def is_float(numStr):
@@ -43,11 +44,11 @@ def get_opt(opt_path, device):
                     else:
                         opt_dict[key] = str(value)
               
-    
+    opt.data_root = os.path.dirname(opt_path)
     opt.joint_num = 22
     opt.dim_pose = 263
     opt.max_motion_length = 196
     opt.is_train = True
     opt.device = device
-    opt.motion_dir = pjoin(opt.data_root, 'new_joint_vecs')
+    opt.motion_dir = pjoin(opt.data_root, 'new_joint_vec')
     return opt
