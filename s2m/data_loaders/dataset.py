@@ -9,6 +9,7 @@ import logging
 from tqdm import tqdm
 from PIL import Image
 from PIL.ImageOps import grayscale
+from transformers import CLIPProcessor
 from torchvision.transforms import GaussianBlur, RandomRotation, ToTensor, Compose
 
 class Sketch2MotionDataset(data.Dataset):
@@ -17,6 +18,8 @@ class Sketch2MotionDataset(data.Dataset):
         self.mean = mean
         self.std = std
         self.opt = opt
+        model_name = "openai/clip-vit-base-patch16"
+        self.processor = CLIPProcessor.from_pretrained(model_name)
         self.transform = transform
         self.motion_length=60
         self.data_dict = {}
@@ -78,17 +81,9 @@ class Sketch2MotionDataset(data.Dataset):
         Data Augmentation Transform 
         img: PIL Image object
         """
-        img = img.crop((200, 200, 800, 800))
-        img = img.resize((200,200))
-        img = grayscale(img)
-
-        transforms = Compose([
-            # RandomRotation([-20, 20], fill=255),
-            # GaussianBlur(kernel_size=(3, 3), sigma=(0.1, 0.5)),
-            ToTensor()
-            ]
-            )
-        return transforms(img)
+        return self.processor(images=image, return_tensors="pt", padding=True)
+      
+       
 
 
     # def __getitem__(self, item, **kwargs):
