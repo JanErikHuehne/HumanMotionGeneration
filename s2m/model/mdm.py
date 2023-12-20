@@ -1,7 +1,8 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+import torch.nn.fun
+from transformers import CLIPProcessor, CLIPModel
 import clip
 
 
@@ -25,17 +26,21 @@ class MDM(nn.Module):
                                                 self.nfeats)
             self.sequence_pos_encoder = PositionalEncoding(self.latent_dim, self.dropout)
             self.embed_timestep = TimestepEmbedder(self.latent_dim, self.sequence_pos_encoder)
-
+        
             seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=latent_dim,
                                                               nhead=self.num_heads,
                                                               dim_feedforward=self.ff_size,
                                                               dropout=self.dropout,
                                                               activation = self.activation
                                                               )
+            
             self.seqTransEncoder = nn.TransformerEncoder(seqTransEncoderLayer, num_layers=self.num_layers)
 
             self.embded_timestep = TimestepEmbedder(latent_dim=self.latent_dim, sequence_pos_encoder=self.sequence_pos_encoder )
-            self.sketchEncoder = Sketch_Embedder(input_dim=200, latent_dim=self.latent_dim)
+            #self.sketchEncoder = Sketch_Embedder(input_dim=200, latent_dim=self.latent_dim)
+            model_name = "openai/clip-vit-base-patch16"
+            self.sketchEncoder = CLIPModel.from_pretrained(model_name)
+                     
 
     def forward(self, x, y, timesteps):
         """
@@ -50,7 +55,8 @@ class MDM(nn.Module):
 
         emb = self.embed_timestep(timesteps) # yields [1, bs, d]
         #print("TIMESTEP EMBEDDING", emb.shape)
-        sketch_embbedding = self.sketchEncoder(y)
+        with torch.no_grad():
+            sketch_embbedding = self.sketchEncoder(y)
 
         # HERE WE ADD THE ENCODING OF OUR 2D-SKETCHES
         emb +=  sketch_embbedding
