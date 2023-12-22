@@ -1,5 +1,6 @@
 import math#
 from os.path import join as pjoin
+import os
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -24,33 +25,64 @@ def list_cut_average(ll, intervals):
         ll_new.append(np.mean(ll[l_low:l_high]))
     return ll_new
 
-def generste_sketeches(save_path, kinematic_tree, joints, dataset, radius = 3, relative_frame_indexes=[0,0.5,1]): 
-    def init(a):
-        a.set_xlim3d([-radius / 2, radius / 2])
-        a.set_ylim3d([0, radius])
-        a.set_zlim3d([-radius / 3., radius * 2 / 3.])
-        # print(title)
-        #fig.suptitle(", fontsize=10)
-        a.grid(b=False)
-    data = joints.copy().reshape(len(joints), -1, 3)
-    data *= 1.3 # rescaling for humanml3d dataset
-    ax = p3.Axes3D(fig)
-    init(ax)
+def get_frame(data, relative_frame_index):
+    assert relative_frame_index > 0
+    assert relative_frame_index < 1
     frame_number = data.shape[0]
-    for relative_frame in relative_frame_indexes: 
-        if relative_frame < 0 or relative_frame > 1:
-            pass
-        else:
-            frame_number = (int)((frame_number-1) * relative_frame)
-            frame = data[frame_number]
-            plt.axis('off')
-            ax.set_xticklabels([])
-            ax.set_yticklabels([])
-            ax.set_zticklabels([])
-            for chain in kinematic_tree:
-                ax.plot3D(frame[chain, 0], frame[chain, 1], frame[chain, 2], linewidth=2,
-                          color="black")
-            plt.savefig(pjoin(save_path, f"{frame_number}.png")
+    fnum = (int)((frame_number-1) * relative_frame_index)
+    return data[fnum], fnum
+
+def generate_sketches(motion_name, save_path, kinematic_tree, joints, radius = 2, relative_frame_indexes=[0,0.5,1]): 
+    """This function can be used to generate sketches from a given motion datafile
+
+    Args:
+        motion_name (str): name of the motion passed to this function
+        save_path (str): root directory path, in this directory a new directory named after the motion name will be created
+        kinematic_tree (list): list of kinematic chains
+        joints (np.array): data of the motion of the shape (t, 22, 3)
+        radius (int, optional): Radius of the drawing. Defaults to 2.
+        relative_frame_indexes (list, optional): Relative values of the frame location that should be extracted, all values must be between 0 and 1. Defaults to [0,0.5,1].
+    """
+    
+    data = np.load("000003.npy") * 1.5
+    data = data.reshape(len(data), -1, 3)
+
+    MINS = data.min(axis=0).min(axis=0)
+    MAXS = data.max(axis=0).max(axis=0)
+    height_offset = MINS[1]
+    data[:, :, 1] -= height_offset
+    data[..., 0] -= data[:, 0:1, 0]
+    data[..., 2] -= data[:, 0:1, 2]
+   
+
+
+    path_root = save_path
+    for frame in relative_frame_indexes:
+        save_path = path_root
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.set_xlim3d([-radius / 2, radius / 2])
+        ax.set_ylim3d([0, radius])
+        ax.set_zlim3d([-radius / 3., radius * 2 / 3.])
+        ax.view_init(elev=160, azim=-90)
+        ax.grid(b=False)
+        ax.invert_zaxis()
+        f, fnum = get_frame(data, frame)
+        for c in kinematic_tree:
+            points = f[c]
+            ax.plot3D(points[:, 0], points[:, 2], points[:, 1], linestyle='-', c="black")
+
+        # Show the plot
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_zticklabels([])
+        plt.axis('off')
+        save_path = pjoin(save_path, motion_name)
+        os.makedirs(save_path, exist_ok=True)
+        print(save_path)
+        print()
+        plt.savefig(pjoin(save_path, f"{motion_name}_{fnum}.png"))
+        plt.clf()
 
 def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3, 3), fps=120, radius=3,
                    vis_mode='default', gt_frames=[]):
