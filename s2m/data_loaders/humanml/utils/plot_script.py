@@ -1,4 +1,5 @@
-import math
+import math#
+from os.path import join as pjoin
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
@@ -23,6 +24,33 @@ def list_cut_average(ll, intervals):
         ll_new.append(np.mean(ll[l_low:l_high]))
     return ll_new
 
+def generste_sketeches(save_path, kinematic_tree, joints, dataset, radius = 3, relative_frame_indexes=[0,0.5,1]): 
+    def init(a):
+        a.set_xlim3d([-radius / 2, radius / 2])
+        a.set_ylim3d([0, radius])
+        a.set_zlim3d([-radius / 3., radius * 2 / 3.])
+        # print(title)
+        #fig.suptitle(", fontsize=10)
+        a.grid(b=False)
+    data = joints.copy().reshape(len(joints), -1, 3)
+    data *= 1.3 # rescaling for humanml3d dataset
+    ax = p3.Axes3D(fig)
+    init(ax)
+    frame_number = data.shape[0]
+    for relative_frame in relative_frame_indexes: 
+        if relative_frame < 0 or relative_frame > 1:
+            pass
+        else:
+            frame_number = (int)((frame_number-1) * relative_frame)
+            frame = data[frame_number]
+            plt.axis('off')
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
+            ax.set_zticklabels([])
+            for chain in kinematic_tree:
+                ax.plot3D(frame[chain, 0], frame[chain, 1], frame[chain, 2], linewidth=2,
+                          color="black")
+            plt.savefig(pjoin(save_path, f"{frame_number}.png")
 
 def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3, 3), fps=120, radius=3,
                    vis_mode='default', gt_frames=[]):
