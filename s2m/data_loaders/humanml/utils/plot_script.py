@@ -8,7 +8,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.animation import FuncAnimation, FFMpegFileWriter
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import mpl_toolkits.mplot3d.axes3d as p3
-# import cv2
+import cv2
 from textwrap import wrap
 
 
@@ -32,6 +32,54 @@ def get_frame(data, relative_frame_index):
     fnum = (int)((frame_number-1) * relative_frame_index)
     return data[fnum], fnum
 
+def generate_vector_representation(motion_name, save_path, kinematic_tree, joints, relative_frame_indexes=[0,0.5,1]):
+    data = joints * 1.5
+    data = data.reshape(len(data), -1, 3)
+
+    MINS = data.min(axis=0).min(axis=0)
+    MAXS = data.max(axis=0).max(axis=0)
+    height_offset = MINS[1]
+    data[:, :, 1] -= height_offset
+    data[..., 0] -= data[:, 0:1, 0]
+    data[..., 2] -= data[:, 0:1, 2]
+    path_root = save_path
+    focal_length_x = 8  # Focal length in the x-direction
+    focal_length_y = 8  # Focal length in the y-direction
+    principal_point_x = 1  # Principal point x-coordinate
+    principal_point_y = 1  # Principal point y-coordinate
+    camera_matrix = np.array([[focal_length_x, 0, principal_point_x],
+                                [0, focal_length_y, principal_point_y],
+                                [0, 0, 1]], dtype=np.float64)
+
+    # Define the distortion coefficients
+    dist_coeffs = np.zeros((5, 1), dtype=np.float64)  # No distortion coefficients
+
+    # Define the rotation and translation vectors
+    rvec = np.zeros((3, 1), dtype=np.float64)  # Rotation vector
+    tvec = np.array([[0], [0], [8]], dtype=np.float64)  # Translation vector
+    
+    for frame in relative_frame_indexes:
+        save_path = path_root
+        f, fnum = get_frame(data, frame)
+        points = np.empty((0,2))
+        for c in kinematic_tree:
+            dat = np.array(f[c], dtype=np.float64)
+            dat = dat.reshape(-1, 3)[np.newaxis, ...]
+            # Define the camera matrix
+     
+            # Project the 3D points to 2D
+            image_points, _ = cv2.projectPoints(dat, rvec, tvec, camera_matrix, dist_coeffs)
+     
+            chain_points = image_points[:, 0, :]
+            i = len(chain_points) - 1
+            while i - 1 >= 0:
+                vec = chain_points[i] - chain_points[i - 1]
+                i -= 1
+                points = np.append(points, vec[np.newaxis, ...], axis=0)
+        save_path = pjoin(save_path, motion_name)
+        save_path = pjoin(save_path, f"{motion_name}_{fnum}_vec.npy")
+        np.save(save_path, points)
+        
 def generate_sketches(motion_name, save_path, kinematic_tree, joints, radius = 2, relative_frame_indexes=[0,0.5,1]): 
     """This function can be used to generate sketches from a given motion datafile
 
@@ -44,9 +92,8 @@ def generate_sketches(motion_name, save_path, kinematic_tree, joints, radius = 2
         relative_frame_indexes (list, optional): Relative values of the frame location that should be extracted, all values must be between 0 and 1. Defaults to [0,0.5,1].
     """
     
-    data = np.load("000003.npy") * 1.5
+    data = joints * 1.5
     data = data.reshape(len(data), -1, 3)
-
     MINS = data.min(axis=0).min(axis=0)
     MAXS = data.max(axis=0).max(axis=0)
     height_offset = MINS[1]
