@@ -26,8 +26,8 @@ def list_cut_average(ll, intervals):
     return ll_new
 
 def get_frame(data, relative_frame_index):
-    assert relative_frame_index > 0
-    assert relative_frame_index < 1
+    assert relative_frame_index >= 0
+    assert relative_frame_index <= 1
     frame_number = data.shape[0]
     fnum = (int)((frame_number-1) * relative_frame_index)
     return data[fnum], fnum
