@@ -32,6 +32,22 @@ def get_frame(data, relative_frame_index):
     fnum = (int)((frame_number-1) * relative_frame_index)
     return data[fnum], fnum
 
+def generate_vector_dataset(dataset_path, dataset, save_directory, relative_frames, kinematic_tree):
+    # Read the txt file containing the list of npy files
+    with open(os.path.join(dataset_path, f"{dataset}.txt"), "r") as file:
+        npy_files = file.read().splitlines()
+    
+    # Create the save directory if it doesn't exist
+    os.makedirs(save_directory, exist_ok=True)
+    
+    # Iterate over each npy file in the dataset
+    for npy_file in npy_files:
+        # Load the joints data from the npy file
+        joints = np.load(os.path.join(dataset_path, "new_joint_representations", npy_file))
+        
+        # Generate the vector representation for the given relative frames
+        generate_vector_representation(npy_file, save_directory, kinematic_tree, joints, relative_frames)
+        
 def generate_vector_representation(motion_name, save_path, kinematic_tree, joints, relative_frame_indexes=[0,0.5,1]):
     data = joints * 1.5
     data = data.reshape(len(data), -1, 3)
