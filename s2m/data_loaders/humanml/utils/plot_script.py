@@ -255,3 +255,43 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
     # ani.save(save_path, writer='pillow', fps=1000 / fps)
 
     plt.close()
+
+def reverse_vector(vec_rep, kinematic_tree, reference_point=np.array((1.  ,2.45504332))):
+    if reference_point is None:
+        reference_point = np.zeros((2,))
+    rep = rep = {"index": 0, "point" : reference_point}
+    points = {0 : reference_point}
+    list_vectors = [rep]
+    # First we need to extract each vector representation of each respecitive chaib
+    # We do this by iterating over the kinematic tree
+    # For each chain we extract the vectors and add them to a list
+    total_length = 0
+    for c in kinematic_tree:
+        length = len(c) - 1
+        chain_vectors = np.flip(vec_rep[total_length:total_length+length], axis=0)
+        for i, v in enumerate(chain_vectors):
+            start_val = points.get(c[i])
+            if start_val is not None:
+               
+               
+                point = start_val + v
+                rep = {"index": c[i+1], "point" : point}
+                list_vectors.append(rep)
+                #pp.pprint(rep)
+                points[c[i+1]] = point
+                #print("Adding new point ", points)
+        total_length += length
+        #print("--- End of Chain ---")
+    point_coord = sorted(list_vectors, key=lambda d: d['index'])
+    re_points = np.empty((0,2))
+    for p in point_coord:
+        re_points = np.append(re_points, p["point"][np.newaxis, ...], axis=0)
+    return re_points
+
+def generate_plot(chain, rep):
+    for c in chain:
+        t = rep[c]
+        print(t)
+        print("--- End of Chain ---")
+        plt.plot(t[:, 0], t[:, 1])
+    plt.show()
