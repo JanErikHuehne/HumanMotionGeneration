@@ -4,7 +4,7 @@ import numpy as np
 import os 
 from os.path import join as pjoin
 import random
-from .utils.opt import get_opt 
+from data_loaders.utils.opt import get_opt
 import logging
 from tqdm import tqdm
 from PIL import Image
@@ -14,38 +14,41 @@ from torchvision.transforms import GaussianBlur, RandomRotation, ToTensor, Compo
 
 class Sketch2MotionDataset(data.Dataset):
 
-    def __init__(self, mean, std, opt, data_file, transform=True, top_10 = False):
+    def __init__(self, mean, std, opt, data_file, transform=True, top_10 = True):
         self.mean = mean
         self.std = std
         self.opt = opt
         model_name = "openai/clip-vit-base-patch16"
         self.processor = CLIPProcessor.from_pretrained(model_name)
         self.transform = transform
-        self.motion_length=60
+        self.motion_length = 40
         self.data_dict = {}
         id_list = []
         new_name_list = []
         with open(data_file, "r") as f:
             if top_10:
-                for line in f.readlines() :
+                for line in f.readlines():
                     if len(id_list) < 10:
                         id_list.append(line.strip())
+                    else:
+                        break
             else: 
-                for line in f.readlines() :
+                for line in f.readlines():
                     id_list.append(line.strip())
 
         self.data_dict2 = []
+        self.data_dict3 = []
         for name in tqdm(id_list):
             motion = pjoin(opt.motion_dir, name + '.npy')
             motion_length = np.load(motion).shape[0]
             if motion_length < self.motion_length:   # why is there a condition? why we need to select motion whoes length is bigger than self.motion_length
                 continue
-            sketch_dir = pjoin(opt.condition_root, name)
-            sketch_data_paths = os.listdir(sketch_dir)
-            sketches = []
-            for sketch in sketch_data_paths:
+            vector_dir = pjoin(opt.condition_root, name)
+            vector_data_paths = os.listdir(vector_dir)
+            vectors = []
+            for vector in vector_data_paths:
                 i = 0
-                sketch_frame = str(sketch).split("_")[-1].split(".png")[0]
+                vector_frame = str(vector).split("_")[1]
                 
                 new_name = str(i) + "_" + name
                 while new_name in self.data_dict:
@@ -53,16 +56,24 @@ class Sketch2MotionDataset(data.Dataset):
                     try:
                         new_name = str(i) + '_' + name
                     except Exception:
-                        print(len(sketch_data_paths))
+                        print(len(vector_data_paths))
                         print("Too many files!")
                 self.data_dict[new_name] = {'motion': motion,
-                                       'sketch': pjoin(sketch_dir, sketch),
-                                       'sketch_frame': int(sketch_frame)}
-                sketches.append((pjoin(sketch_dir, sketch), int(sketch_frame))) # JC change
+                                       'vector': pjoin(vector_dir, vector),
+                                       'vector_frame': int(vector_frame)}
+                vectors.append((pjoin(vector_dir, vector), int(vector_frame))) # JC change
                 new_name_list.append(new_name)
-            sketches.sort(key=lambda x: x[1])
+            vectors.sort(key=lambda x: x[1])
+            for i in range(motion_length // 10 - 4):
+                vector_crop = [vectors[i], vectors[i+1], vectors[i+2], vectors[i+3], vectors[i+4]]
+                motion_crop = (i*10, i*10+40)
+                self.data_dict3.append({
+                    'motion': motion,
+                    'vectors': vector_crop,
+                    'motion_crop' : motion_crop,
+                })
             self.data_dict2.append( {'motion': motion,
-                                       'sketches': sketches
+                                       'vectors': vectors
             })
         name_list = sorted(new_name_list)
         self.name_list = name_list
@@ -74,14 +85,14 @@ class Sketch2MotionDataset(data.Dataset):
     #     return len(self.data_dict)
 
     def __len__(self):
-        return len(self.data_dict2)
+        return len(self.data_dict3)
     
     def transform_img(self, img):
         """
         Data Augmentation Transform 
         img: PIL Image object
         """
-        return self.processor(images=image, return_tensors="pt", padding=True)
+        return self.processor(images=img, return_tensors="pt", padding=True)
       
        
 
@@ -119,36 +130,55 @@ class Sketch2MotionDataset(data.Dataset):
     #     sketch = self.transform_img(sketch)
     #     return motion, sketch
 
-    def __getitem__(self, item):
-        data = self.data_dict[self.name_list[item]]
-        motion, sketch = np.load(data["motion"]), Image.open(data["sketch"])
-        max_length = motion.shape[0]
-        # Check if half of the motion size fits after the sketch
-        half_length = int((self.motion_length/2))
-        fits_after = (max_length-data["sketch_frame"]-1) -half_length 
-        fits_before = data["sketch_frame"] - half_length
-        # Create a window around the frame
-        if fits_after > 0 and fits_before > 0: 
-            motion = motion[data["sketch_frame"]-half_length:data["sketch_frame"]+half_length]
-        # If window does not fit in front, we talk available frames in front and will the 
-        # overlay with frames from the behind the sketch
-        elif fits_after > 0 and fits_before < 0:
-            motion = motion[:self.motion_length]
-        # If the window does not fit behind, we take available frames from in front of the frame
-        else: 
-            motion = motion[-self.motion_length:]
-    
-            
-        m_length = motion.shape[0]
-        m_length = (m_length // self.opt.unit_length - 1) * self.opt.unit_length
 
-        idx = random.randint(0, len(motion)- m_length)
-        motion = motion[idx:idx+m_length]
+        # data = self.data_dict[self.name_list[item]]
+        # motion, sketch = np.load(data["motion"]), Image.open(data["sketch"])
+        # max_length = motion.shape[0]
+        # # Check if half of the motion size fits after the sketch
+        # half_length = int((self.motion_length/2))
+        # fits_after = (max_length-data["sketch_frame"]-1) -half_length
+        # fits_before = data["sketch_frame"] - half_length
+        # # Create a window around the frame
+        # if fits_after > 0 and fits_before > 0:
+        #     motion = motion[data["sketch_frame"]-half_length:data["sketch_frame"]+half_length]
+        # # If window does not fit in front, we talk available frames in front and will the
+        # # overlay with frames from the behind the sketch
+        # elif fits_after > 0 and fits_before < 0:
+        #     motion = motion[:self.motion_length]
+        # # If the window does not fit behind, we take available frames from in front of the frame
+        # else:
+        #     motion = motion[-self.motion_length:]
+        #
+        #
+        # m_length = motion.shape[0]
+        # m_length = (m_length // self.opt.unit_length - 1) * self.opt.unit_length
+        #
+        # idx = random.randint(0, len(motion)- m_length)
+        # motion = motion[idx:idx+m_length]
+    def __getitem__(self, index):
+        """
+        motion with fixed length of 40 frames
+        3 sketches for each motion
+        interval of sketches is 20 frames
+        """
+        data = self.data_dict3[index]
+        motion = np.load(data["motion"])
+        motion = (motion - self.mean) / self.std
+        vectors = []
+        key_frames = []
+        for vector_name, key_frame in data["vectors"]:
+            vector = np.load(vector_name)
+            vectors.append(vector)
+            key_frames.append(key_frame)
+        key_frames, vectors = torch.tensor(key_frames), torch.tensor(np.array(vectors))
 
-        # Z Norm 
-        motion = (motion -self.mean) / self.std
-        sketch = self.transform_img(sketch)
-        return motion, sketch
+        # sketches = self.transform_img(sketches)
+        motion = motion[self.data_dict3[index]['motion_crop'][0]:(self.data_dict3[index]['motion_crop'][1] + 1)]
+        # sketches = torch.stack(sketches, dim=1)
+        # sketches = torch.squeeze(sketches)
+
+
+        return motion, vectors, key_frames
 
 
 
@@ -164,8 +194,8 @@ class HumanML3D(data.Dataset):
         opt = get_opt(dataset_opt_path, device=None)
         # opt.model_dir = pjoin(abs_base_path, opt.model_dir)
         opt.data_root = os.path.abspath(pjoin(abs_base_path, opt.data_root))
-        opt.condition_root = pjoin(opt.data_root, "sketches")
-        opt.motion_dir = pjoin(opt.data_root,"new_joint_vecs")
+        opt.condition_root = pjoin(opt.data_root, "Vectors")
+        opt.motion_dir = pjoin(opt.data_root,"new_joints_vec")
         # opt.save_root = pjoin(abs_base_path, opt.save_root)
         opt.meta_dir = './dataset'
         opt.save_root = pjoin(abs_base_path, 'save')
