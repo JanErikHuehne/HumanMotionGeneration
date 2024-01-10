@@ -22,6 +22,8 @@ class MDM(nn.Module):
             self.input_feats = 263
             self.njoints = 263
             self.nfeats = 1
+            self.mask_prob = 0.5
+            self.masked_dropout = torch.nn.Dropout2d(p=self.mask_prob)
             self.input_process = InputProcess(self.input_feats, self.latent_dim)
             self.output_process = OutputProcess(self.input_feats, self.latent_dim, self.njoints,
                                                 self.nfeats)
@@ -88,6 +90,8 @@ class MDM(nn.Module):
         # HERE WE ADD THE ENCODING OF OUR 2D-SKETCHES
         # sketches_emb1, frames_emb1 = torch.zeros_like(sketches_emb), torch.zeros_like(frames_emb)
         emb =  sketches_emb + time_emb_5 + frames_emb
+        if self.training:
+            emb = self.masked_dropout(emb.permute(1,0,2)).permute(1,0,2)
         # emb = time_emb
 
         x = self.input_process(x)
