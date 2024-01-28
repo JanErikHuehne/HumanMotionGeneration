@@ -146,10 +146,12 @@ def generate_sketches(motion_name, save_path, kinematic_tree, joints, radius = 1
         if i % 10 == 0 or i == motion_length - 1:
             relative_frame_indexes.append(i)
 
-
+    camera_position = np.array([0,0,7])
+    rot_mat = np.array([[1,0, 0], [0,1, 0], [0, 0, -1]])
     path_root = save_path
     for frame in relative_frame_indexes:
         save_path = path_root
+        """
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
         # ax.set_xlim3d([-radius / 2, radius / 2])
@@ -179,6 +181,16 @@ def generate_sketches(motion_name, save_path, kinematic_tree, joints, radius = 1
         ax.set_yticklabels([])
         ax.set_zticklabels([])
         plt.axis('off')
+        """
+        f, fnum = data[frame], frame
+        f -= camera_position
+        f = np.dot(rot_mat, f.T).T
+        points2D =  3 * f[:, :2] / f[:,2, None]
+        for c, color in zip(kinematic_tree, colors):
+            points = f[c]
+            plt.plot(points2D[c, 0], points2D[c,1], linewidth=4, color="black")
+        plt.xlim(points2D[0,0]-0.3,points2D[0,0]+0.3)
+        plt.ylim(points2D[0,1]-0.6,points2D[0,1]+0.4)
         save_path = pjoin(save_path, motion_name)
         os.makedirs(save_path, exist_ok=True)
         print(save_path)
