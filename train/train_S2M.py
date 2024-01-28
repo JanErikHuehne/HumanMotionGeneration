@@ -1,4 +1,4 @@
-from data_loaders.dataloader import get_dataset_loader
+from data_loaders import dataloader
 from model.mdm import MDM
 from diffusion import Gaussian_diffusion as gd
 import torch as th
@@ -12,13 +12,22 @@ from utils import dist_util
 
 def dev():
     """
-    Get the device to use for torch.distributed.
+    Get the device to use.
     """
     if th.cuda.is_available():
-        print("cuda")
         return th.device(f"cuda:0")
     return th.device("cpu")
+
+
+def load_pretrained(model, model_path):
+    state_dict = torch.load(model_path, map_location="cpu")
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    if len(unexpected_keys) > 0:
+        print(unexpected_keys)
+    print(missing_keys)
+
 def main():
+    torch.cuda.empty_cache() 
     args = train_args()
     fixseed(args.seed)
     # train_platform_type = eval(args.train_platform_type)
@@ -34,18 +43,27 @@ def main():
     args_path = os.path.join(args.save_dir, 'args.json')
     with open(args_path, 'w') as fw:
         json.dump(vars(args), fw, indent=4, sort_keys=True)
-
-    print("creating data loader...")
-    loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1)
-    # motion =
-
     print("creating model and diffusion...")
-    arg_dict =get_model_args(args, loader)
+
+    #arg_dict =get_model_args(args, loader)
     model = MDM()
+    print(model.latent_dim)
+    # load_pretrained(model, "/media/jan/SSD Spiele/ADLCV/HumanMotionGeneration/pretrained_model/model000475000.pt")
     betas = gd.get_named_beta_schedule(schedule_name="cosine", num_diffusion_timesteps=1000)
+
+    # #loading model
+    # state_dict = torch.load(r'F:\ADL\CV\s2m_colorful_sketches\save\overfit_condition_train3644_motions5_150_0.8_0.0001\trained_model2.pth', map_location='cpu')
+    # missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    # assert len(unexpected_keys) == 0
+
     # loss_type = gd.LossType.MSE
     model.to(dev())
-    diffusion = gd.GaussianDiffusion(betas=betas)
+    print("creating data loader...")
+    loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1, split='train3644')
+    #loader = get_dataset_loader(datapath='/media/jan/SSD Spiele/ADLCV/HumanMotionGeneration/test_data/opt_test.txt', batch_size=1)
+    # loader = get_dataset_loader(datapath='/media/jan/SSD Spiele/ADLCV/HumanMotionGeneration/dataset/HumanML3D/opt_test.txt', batch_size=64)
+    # motion =
+    diffusion = gd.GaussianDiffusion(betas=betas, loader=loader)
 
     print("Training...")
     TrainLoop(args, model, diffusion, data=loader).run_loop()
