@@ -13,7 +13,9 @@ from textwrap import wrap
 from transformers import CLIPProcessor, CLIPModel
 from PIL import Image
 from scipy.spatial.transform import Rotation as R
-from tqdm import tqdm
+import torchvision.transforms as transforms
+import torchvision.models as models
+import torch
 
 # import CLIP_image_encoder
 model_name = "openai/clip-vit-base-patch16"
@@ -22,6 +24,9 @@ sketchEncoder = CLIPModel.from_pretrained(model_name)
 sketchEncoder.eval()
 for param in sketchEncoder.parameters():
     param.requires_grad = False
+
+#import ResNet
+
 
 
 def list_cut_average(ll, intervals):
@@ -113,7 +118,7 @@ def generate_vector_dataset(dataset_path, dataset, save_directory, kinematic_tre
     os.makedirs(save_directory, exist_ok=True)
 
     # Iterate over each npy file in the dataset
-    for npy_file in tqdm(npy_files):
+    for npy_file in npy_files:
         # npy_file = npy_file + '.npy'
         # Load the joints data from the npy file
         joints = np.load(os.path.join(dataset_path, "new_joints", npy_file + '.npy'))
@@ -196,9 +201,7 @@ def generate_sketches(motion_name, save_path, kinematic_tree, joints, radius=1.5
         colors = ['red', 'orange', 'pink', 'green', 'blue']
         for c, color in zip(kinematic_tree, colors):
             # points = f[c]
-            plt.plot(points2D[c, 0], points2D[c, 1], linewidth=4, color=color)
-        for i in range(points2D.shape[0]):
-            plt.plot(points2D[i, 0], points2D[i, 1], 'ko', markersize=5)
+            plt.plot(points2D[c, 0], points2D[c, 1], linewidth=4, color="black")
         plt.xlim(points2D[0, 0] - 0.6, points2D[0, 0] + 0.6)
         plt.ylim(points2D[0, 1] - 0.7, points2D[0, 1] + 0.5)
         plt.axis('off')
@@ -215,6 +218,47 @@ def generate_sketches(motion_name, save_path, kinematic_tree, joints, radius=1.5
         img_emb = sketchEncoder.get_image_features(**img_emb)
         np.save(pjoin(save_path, f"{motion_name}_{fnum}.npy"), img_emb)
 
+        # Define the transformation
+        preprocess = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            # transforms.ToTensor(),
+            # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        if img.mode == 'RGBA':
+            img = img.convert('RGB')
+        # Preprocess the image
+        img_t = preprocess(img)
+
+        img_t = img_t.unsqueeze(0)
+
+        # def imshow(inp, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]):
+        #     """Imshow for Tensor."""
+        #     inp = inp.numpy().transpose((1, 2, 0))
+        #     inp = std * inp + mean
+        #     inp = np.clip(inp, 0, 1)
+        #     plt.imshow(inp)
+        #     plt.axis('off')
+        #     plt.show()
+        #
+        # # Assuming img_t is your preprocessed image tensor
+        # # Remove the batch dimension
+        # img_show = img_t.squeeze(0)
+        #
+        # # Call the function
+        # imshow(img_show)
+        # Load a pre-trained ResNet model, for example ResNet50
+        resnet50 = models.resnet50(pretrained=True)
+
+        # To use the model for inference
+        resnet50.eval()
+        with torch.no_grad():  # Turn off gradients for inference
+            # Pass the image through the model
+            outputs = resnet50(img_t)
+        outputs = torch.squeeze(outputs)
+        np.save(pjoin(save_path, f"{motion_name}_{fnum}_ResNet.npy"), outputs)
+
+        return
 
 
 
@@ -328,9 +372,9 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
 
 def main():
     datapath = r'F:\ADL\CV\s2m_with_joint_position_loss\test_data'
-    savepath = r'F:\ADL\CV\s2m_with_joint_position_loss\test_data\colorful_sketches'
+    savepath = r'F:\ADL\CV\s2m_with_joint_position_loss\test_data\sketches4'
     os.makedirs(savepath, exist_ok=True)
-    generate_vector_dataset(dataset_path=datapath, dataset='train1_7593', save_directory=savepath,
+    generate_vector_dataset(dataset_path=datapath, dataset='train20', save_directory=savepath,
                             kinematic_tree=[[0, 2, 5, 8, 11],
                                             [0, 1, 4, 7, 10],
                                             [0, 3, 6, 9, 12, 15],

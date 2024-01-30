@@ -13,7 +13,6 @@ from textwrap import wrap
 from transformers import CLIPProcessor, CLIPModel
 from PIL import Image
 from scipy.spatial.transform import Rotation as R
-from tqdm import tqdm
 
 # import CLIP_image_encoder
 model_name = "openai/clip-vit-base-patch16"
@@ -113,7 +112,7 @@ def generate_vector_dataset(dataset_path, dataset, save_directory, kinematic_tre
     os.makedirs(save_directory, exist_ok=True)
 
     # Iterate over each npy file in the dataset
-    for npy_file in tqdm(npy_files):
+    for npy_file in npy_files:
         # npy_file = npy_file + '.npy'
         # Load the joints data from the npy file
         joints = np.load(os.path.join(dataset_path, "new_joints", npy_file + '.npy'))
@@ -196,9 +195,7 @@ def generate_sketches(motion_name, save_path, kinematic_tree, joints, radius=1.5
         colors = ['red', 'orange', 'pink', 'green', 'blue']
         for c, color in zip(kinematic_tree, colors):
             # points = f[c]
-            plt.plot(points2D[c, 0], points2D[c, 1], linewidth=4, color=color)
-        for i in range(points2D.shape[0]):
-            plt.plot(points2D[i, 0], points2D[i, 1], 'ko', markersize=5)
+            plt.plot(points2D[c, 0], points2D[c, 1], linewidth=4, color="black")
         plt.xlim(points2D[0, 0] - 0.6, points2D[0, 0] + 0.6)
         plt.ylim(points2D[0, 1] - 0.7, points2D[0, 1] + 0.5)
         plt.axis('off')
@@ -328,9 +325,9 @@ def plot_3d_motion(save_path, kinematic_tree, joints, title, dataset, figsize=(3
 
 def main():
     datapath = r'F:\ADL\CV\s2m_with_joint_position_loss\test_data'
-    savepath = r'F:\ADL\CV\s2m_with_joint_position_loss\test_data\colorful_sketches'
+    savepath = r'F:\ADL\CV\s2m_with_joint_position_loss\test_data\sketches4'
     os.makedirs(savepath, exist_ok=True)
-    generate_vector_dataset(dataset_path=datapath, dataset='train1_7593', save_directory=savepath,
+    generate_vector_dataset(dataset_path=datapath, dataset='train_s5', save_directory=savepath,
                             kinematic_tree=[[0, 2, 5, 8, 11],
                                             [0, 1, 4, 7, 10],
                                             [0, 3, 6, 9, 12, 15],

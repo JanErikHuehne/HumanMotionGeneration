@@ -50,5 +50,5 @@ def get_opt(opt_path, device):
     opt.max_motion_length = 196
     opt.is_train = True
     opt.device = device
-    opt.motion_dir = pjoin(opt.data_root, 'new_joints_vec')
+    opt.motion_dir = pjoin(opt.data_root, 'new_joint_vec')
     return opt

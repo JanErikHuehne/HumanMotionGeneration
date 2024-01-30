@@ -196,7 +196,7 @@ def generate_sketches(motion_name, save_path, kinematic_tree, joints, radius=1.5
         colors = ['red', 'orange', 'pink', 'green', 'blue']
         for c, color in zip(kinematic_tree, colors):
             # points = f[c]
-            plt.plot(points2D[c, 0], points2D[c, 1], linewidth=4, color=color)
+            plt.plot(points2D[c, 0], points2D[c, 1], linewidth=4, color="black")
         for i in range(points2D.shape[0]):
             plt.plot(points2D[i, 0], points2D[i, 1], 'ko', markersize=5)
         plt.xlim(points2D[0, 0] - 0.6, points2D[0, 0] + 0.6)
@@ -330,7 +330,7 @@ def main():
     datapath = r'F:\ADL\CV\s2m_with_joint_position_loss\test_data'
     savepath = r'F:\ADL\CV\s2m_with_joint_position_loss\test_data\colorful_sketches'
     os.makedirs(savepath, exist_ok=True)
-    generate_vector_dataset(dataset_path=datapath, dataset='train1_7593', save_directory=savepath,
+    generate_vector_dataset(dataset_path=datapath, dataset='val', save_directory=savepath,
                             kinematic_tree=[[0, 2, 5, 8, 11],
                                             [0, 1, 4, 7, 10],
                                             [0, 3, 6, 9, 12, 15],

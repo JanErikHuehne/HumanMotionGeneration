@@ -203,7 +203,7 @@ class HumanML3D(data.Dataset):
         opt = get_opt(dataset_opt_path, device=None)
         # opt.model_dir = pjoin(abs_base_path, opt.model_dir)
         opt.data_root = os.path.abspath(pjoin(abs_base_path, opt.data_root))
-        opt.condition_root = pjoin(opt.data_root, "sketches1")
+        opt.condition_root = pjoin(opt.data_root, "colorful_sketches")
         opt.motion_dir = pjoin(opt.data_root, "new_joints_vec")
         # opt.save_root = pjoin(abs_base_path, opt.save_root)
         opt.meta_dir = './dataset'
@@ -211,6 +211,7 @@ class HumanML3D(data.Dataset):
         self.opt = opt
 
         print('Loading dataset %s ....' % opt.dataset_name)
+        print(f'dataset_root: {opt.condition_root}, {opt.motion_dir}')
         self.mean = np.load(pjoin(opt.data_root, 'Mean.npy'))
         self.std = np.load(pjoin(opt.data_root, 'Std.npy'))
 
