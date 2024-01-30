@@ -5,7 +5,10 @@ https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0
 
 Docstrings have been added, as well as DDIM sampling and a new collection of beta schedules.
 """
-
+import matplotlib.pyplot as plt
+from os.path import join as pjoin
+import os
+from scipy.spatial.transform import Rotation as R
 import enum
 import math
 from data_loaders.humanml.utils.plot_script2 import generate_sketches
@@ -135,7 +138,8 @@ class GaussianDiffusion:
         lambda_root_vel=0.,
         lambda_vel_rcxyz=0.,
         lambda_fc=0.,
-        loader=None
+        loader=None,
+        val_loader = None
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
@@ -143,6 +147,7 @@ class GaussianDiffusion:
         self.rescale_timesteps = rescale_timesteps
         self.data_rep = data_rep
         self.loader = loader
+        self.val_loader = val_loader
 
         if data_rep != 'rot_vel' and lambda_pose != 1.:
             raise ValueError('lambda_pose is relevant only when training on velocities!')
@@ -769,18 +774,22 @@ class GaussianDiffusion:
         x_t = self.q_sample(x_start, t, noise=noise)
 
         terms = {}
-
+        terms["loss"] = 0
         model_output = model(x_t, sketch, keyframe, self._scale_timesteps(t), **model_kwargs)
         target = x_start
         assert target.shape == model_output.shape
         loss = self.l2_loss(target, model_output)  # mean_flat(rot_mse)
-        terms["loss"] = loss.sum(dim=list(range(1, len(loss.shape))))
-        terms["loss"] = terms["loss"] / (model_output.shape[1] * model_output.shape[2])
+        loss = loss.sum(dim=list(range(1, len(loss.shape))))
+        loss = loss / (model_output.shape[1] * model_output.shape[2])
         # camara_loss
-        # terms["loss"] = 0
-        loss2, loss3 = self.camara_loss(model_output=model_output, target=target, model=model)
-        loss2, loss3 = loss2.sum(dim=list(range(1, len(loss2.shape)))), loss3.sum(dim=list(range(1, len(loss3.shape))))
-        terms["loss"] += 1.5 * (loss2 + 2 * loss3)
+        loss_xyz, loss_key_xyz, loss_camera, loss_key_camera = self.xyz_camera_loss(model_output=model_output, target=target, model=model)
+        loss_xyz, loss_key_xyz, loss_camera, loss_key_camera = loss_xyz.sum(dim=list(range(1, len(loss_xyz.shape)))), \
+            loss_key_xyz.sum(dim=list(range(1, len(loss_key_xyz.shape)))), \
+            loss_camera.sum(dim=list(range(1, len(loss_camera.shape)))), \
+            loss_key_camera.sum(dim=list(range(1, len(loss_key_camera.shape))))
+        terms["loss"] += (0.4 * (0.1 * loss_xyz + 2 * loss_key_xyz + 5 * loss_camera + 500 * loss_key_camera) + 1.2 * loss)
+        terms["loss_xyz"], terms["loss_key_xyz"], terms["loss_camera"], terms["loss_key_camera"], terms["loss_reconstruct"] = \
+            loss_xyz, loss_key_xyz, loss_camera, loss_key_camera, loss
         # # camara_loss
         # n_joints = 22
         # model_output = torch.unsqueeze(model_output, dim=0)
@@ -806,7 +815,7 @@ class GaussianDiffusion:
 
         return terms
 
-    def camara_loss(self, model_output=None, target=None, model=None):
+    def xyz_camera_loss(self, model_output=None, target=None, model=None):
         n_joints = 22
         model_output = torch.unsqueeze(model_output, dim=0)
         model_output = model_output.permute((0, 3, 1, 2))
@@ -834,10 +843,61 @@ class GaussianDiffusion:
         # target_test = torch.squeeze(target).permute(2, 0, 1).cpu().numpy().copy()
         # generate_sketches('1', r'F:\ADL\CV\s2m_with_joint_position_loss\save', [[0, 2, 5, 8, 11], [0, 1, 4, 7, 10], [0, 3, 6, 9, 12, 15], [9, 14, 17, 19, 21], [9, 13, 16, 18, 20]], target_test, radius=1.4)
         ####
-        loss1 = self.l2_loss(target, sample) / (sample.shape[1] * sample.shape[2] * sample.shape[3])
-        loss2 = self.l2_loss(key_target, key_sample) / (key_sample.shape[1] * key_sample.shape[2] * key_sample.shape[3])
+        loss1 = self.l2_loss(target, sample) / (sample.shape[1] * sample.shape[3])
+        loss2 = self.l2_loss(key_target, key_sample) / (key_sample.shape[1] * key_sample.shape[3])
+        loss3 = self.camera_loss(sample=sample, target=target)
+        loss4 = loss3[:, [0, 10, 20, 30, 40], ...]
 
-        return loss1, loss2
+        return loss1, loss2, loss3, loss4
+
+    def camera_loss(self, sample=None, target=None):
+        camera_position = torch.tensor([0, 0, 7]).to(sample.device)
+        rot_mat = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        angle_x, angle_y, angle_z = 20, 5, 180  # Angles in degrees
+        rotation = R.from_euler('xyz', [angle_x, angle_y, angle_z], degrees=True)
+        rotation_matrix = rotation.as_matrix()
+        rot_mat = np.dot(rotation_matrix, rot_mat)
+        rot_mat = torch.tensor(rot_mat).to(sample.device).float()
+        f = sample.permute(2, 1, 0, 3)
+        f_reshaped = f.reshape(3, -1)  # Reshapes f to a shape of (3, 22*1*41)
+        f_transformed = torch.matmul(rot_mat, f_reshaped)
+        f_transformed = f_transformed.reshape(f.shape)
+        f = f_transformed.permute(2, 3, 1, 0)
+        f -= camera_position
+        points2D = 3 * f[..., :2] / f[..., 2, None]
+        f_target = target.permute(2, 1, 0, 3)
+        f_target_reshaped = f_target.reshape(3, -1)
+        f_target_transformed = torch.matmul(rot_mat, f_target_reshaped)
+        f_target_transformed = f_target_transformed.reshape(f_target.shape)
+        f_target = f_target_transformed.permute(2, 3, 1, 0)
+        f_target -= camera_position
+        points2D_target = 3 * f_target[..., :2] / f_target[..., 2, None]
+
+
+
+        """
+        visualization
+        
+        for i in range(41):
+            points2D_target_np = torch.squeeze(points2D_target).cpu().numpy()[i]
+            points2D_target_np *= 1.4
+            colors = ['red', 'orange', 'pink', 'green', 'blue']
+            for c, color in zip([[0, 2, 5, 8, 11], [0, 1, 4, 7, 10], [0, 3, 6, 9, 12, 15], [9, 14, 17, 19, 21], [9, 13, 16, 18, 20]], colors):
+                plt.plot(points2D_target_np[c, 0], points2D_target_np[c, 1], linewidth=4, color="black")
+            plt.xlim(points2D_target_np[0, 0] - 0.6, points2D_target_np[0, 0] + 0.6)
+            plt.ylim(points2D_target_np[0, 1] - 0.7, points2D_target_np[0, 1] + 0.5)
+            plt.axis('off')
+            save_path = r'F:\ADL\CV\s2m_with_joint_position_loss\save\3'
+            os.makedirs(save_path, exist_ok=True)
+            print(save_path)
+            plt.savefig(pjoin(save_path, f"{i}.png"))
+            plt.clf()
+        
+
+        return
+        """
+        return self.l2_loss(points2D, points2D_target) / (points2D.shape[1] * points2D.shape[2])
+
 
     def fc_loss_rot_repr(self, gt_xyz, pred_xyz, mask):
         def to_np_cpu(x):

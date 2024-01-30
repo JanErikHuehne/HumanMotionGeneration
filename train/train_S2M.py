@@ -51,22 +51,23 @@ def main():
     # load_pretrained(model, "/media/jan/SSD Spiele/ADLCV/HumanMotionGeneration/pretrained_model/model000475000.pt")
     betas = gd.get_named_beta_schedule(schedule_name="cosine", num_diffusion_timesteps=1000)
 
-    # #loading model
-    # state_dict = torch.load(r'F:\ADL\CV\s2m_colorful_sketches\save\overfit_condition_train3644_motions5_150_0.8_0.0001\trained_model2.pth', map_location='cpu')
-    # missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    # # loading model
+    # state_dict = torch.load(r'F:\ADL\CV\s2m_with_joint_position_loss\save\test\checkpoint1000.pth', map_location='cpu')
+    # missing_keys, unexpected_keys = model.load_state_dict(state_dict['model_state_dict'], strict=False)
     # assert len(unexpected_keys) == 0
 
     # loss_type = gd.LossType.MSE
     model.to(dev())
     print("creating data loader...")
-    loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1, split='train3644')
+    loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1, split='train')
+    val_loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1, split='val')
     #loader = get_dataset_loader(datapath='/media/jan/SSD Spiele/ADLCV/HumanMotionGeneration/test_data/opt_test.txt', batch_size=1)
     # loader = get_dataset_loader(datapath='/media/jan/SSD Spiele/ADLCV/HumanMotionGeneration/dataset/HumanML3D/opt_test.txt', batch_size=64)
     # motion =
-    diffusion = gd.GaussianDiffusion(betas=betas, loader=loader)
+    diffusion = gd.GaussianDiffusion(betas=betas, loader=loader, val_loader=val_loader)
 
     print("Training...")
-    TrainLoop(args, model, diffusion, data=loader).run_loop()
+    TrainLoop(args, model, diffusion, data=loader, val_data=val_loader).run_loop()
 
 
 

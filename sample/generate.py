@@ -16,13 +16,15 @@ from model.mdm import MDM
 from diffusion import Gaussian_diffusion as gd
 import torch as th
 # from model.rotation2xyz import Rotation2xyz as rot2xyz
+from model.rotation2xyz import Rotation2xyz
+from data_loaders.humanml.utils.plot_script3 import generate_sketches
 
 def dev():
     """
     Get the device to use for torch.distributed.
     """
     if th.cuda.is_available():
-        print("cuda")
+        # print("cuda")
         return th.device(f"cuda:0")
     return th.device("cpu")
 
@@ -34,7 +36,7 @@ def main():
     out_path = args.output_dir
     name = os.path.basename(os.path.dirname(args.model_path))
     niter = os.path.basename(args.model_path).replace('model', '').replace('.pt', '')
-    max_frames = 82 if args.dataset in ['kit', 'humanml'] else 60
+    max_frames = 41 if args.dataset in ['kit', 'humanml'] else 60
     fps = 12.5 if args.dataset == 'kit' else 20
     n_frames = min(max_frames, int(args.motion_length*fps))
     is_using_data = not any([args.input_text, args.text_prompt, args.action_file, args.action_name])
@@ -78,7 +80,7 @@ def main():
     args.batch_size = args.num_samples  # Sampling a single batch from the testset, with exactly args.num_samples
 
     print('Loading dataset...')
-    loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1)
+    loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1, split='val1')
     total_num_samples = args.num_samples * args.num_repetitions
 
     print("Creating model and diffusion...")
@@ -86,7 +88,7 @@ def main():
     betas = gd.get_named_beta_schedule(schedule_name="cosine", num_diffusion_timesteps=1000)
     # loss_type = gd.LossType.MSE
     model.to(dev())
-    diffusion = gd.GaussianDiffusion(betas=betas)
+    diffusion = gd.GaussianDiffusion(betas=betas, loader=loader)
 
     print(f"Loading checkpoints from [{args.model_path}]...")
     state_dict = torch.load(args.model_path, map_location='cpu')
@@ -99,7 +101,10 @@ def main():
         break
 
     # Load state_dict
-    model.load_state_dict(state_dict)
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    assert len(unexpected_keys) == 0
+    assert all([k.startswith('clip_model.') for k in missing_keys])
+    # model.load_state_dict(state_dict)
 
     # After loading
     print("\nAfter loading state_dict:")
@@ -138,17 +143,24 @@ def main():
 
     for rep_i in range(args.num_repetitions):
         print(f'### Sampling [repetitions #{rep_i}]')
-        iterator = iter(loader)
-        motion, sketch = next(iterator)
-        motion, sketch = next(iterator)
-        motion, sketch = next(iterator)
-        motion, sketch = next(iterator)
-        motion, sketch = next(iterator)
-        motion, sketch = next(iterator)
+        for i, (motion, sketch, keyframe) in enumerate(loader):
         # add CFG scale to batch
         # if args.guidance_param != 1:
         #     model_kwargs['y']['scale'] = torch.ones(args.batch_size, device=dist_util.dev()) * args.guidance_param
-
+        # sketch = torch.zeros_like(sketch)
+            motion.to(dev())
+            # sketch.to(dev())
+            # sketch['pixel_values'] = torch.zeros_like(sketch['pixel_values'])
+            sketch.to(dev())
+            keyframe.to(dev())
+            # keyframe = torch.zeros_like(keyframe)
+            if i == 45:
+                xjc = 5
+                print(loader.dataset.t2m_dataset.data_dict3[i]['sketches'])
+                # motion = torch.zeros_like(motion)
+                # sketch = torch.zeros_like(sketch)
+                # keyframe = torch.zeros_like(keyframe)
+                break
         sample_fn = diffusion.p_sample_loop
 
         sample = sample_fn(
@@ -157,6 +169,7 @@ def main():
             (args.batch_size, model.njoints, model.nfeats, max_frames),  # BUG FIX
             clip_denoised=False,
             sketch=sketch,
+            keyframe=keyframe,
             skip_timesteps=0,  # 0 is the default value - i.e. don't skip any step
             init_image=None,
             progress=True,
@@ -222,6 +235,10 @@ def main():
             save_file = sample_file_template.format(sample_i, rep_i)
             print(sample_print_template.format(caption, sample_i, rep_i, save_file))
             animation_save_path = os.path.join(out_path, save_file)
+            generate_sketches(str(rep_i), out_path, [[0, 2, 5, 8, 11], [0, 1, 4, 7, 10], [0, 3, 6, 9, 12, 15],
+                                            [9, 14, 17, 19, 21], [9, 13, 16, 18, 20]], motion)
+
+
             plot_3d_motion(animation_save_path, skeleton, motion, dataset=args.dataset, title=caption, fps=fps)
             # Credit for visualization: https://github.com/EricGuo5513/text-to-motion
             rep_files.append(animation_save_path)
