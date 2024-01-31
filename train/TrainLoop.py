@@ -202,7 +202,7 @@ class TrainLoop:
                     self.save()
                     if step3 % (100_000 // self.batch_size) == 0:
                         model = self.model
-                        torch.save(model, os.path.join(self.args.save_dir, f'checkpoint{step3 * self.batch_size}'+'.pt'))
+                        # torch.save(model, os.path.join(self.args.save_dir, f'checkpoint{step3 * self.batch_size}'+'.pt'))
                         torch.save({
                             'step': step3 * self.batch_size,
                             'model_state_dict': model.state_dict(),
@@ -378,7 +378,7 @@ class TrainLoop:
         model = self.model  # Replace MyModel with your model class
         # model.load_state_dict(torch.load('model_state_dict.pth'))
         # Get the path of the current file
-        torch.save(model, os.path.join(self.args.save_dir, 'trained_model1.pt'))
+        # torch.save(model, os.path.join(self.args.save_dir, 'trained_model1.pt'))
         torch.save(model.state_dict(), os.path.join(self.args.save_dir, 'trained_model2.pth'))
         print("saved")
 
