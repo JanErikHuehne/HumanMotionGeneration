@@ -52,14 +52,21 @@ def main():
     betas = gd.get_named_beta_schedule(schedule_name="cosine", num_diffusion_timesteps=1000)
 
     # # loading model
-    # state_dict = torch.load(r'F:\ADL\CV\s2m_with_joint_position_loss\save\test\checkpoint1000.pth', map_location='cpu')
+    # print('loading pre-trained model: /home/xie/code/HumanMotionGeneration/save/mN100_BS1_0.5e-5_f0.92_p200_s7000k_black/checkpoint2400000.pth')
+    # state_dict = torch.load(r'/home/xie/code/HumanMotionGeneration/save/mN100_BS1_0.5e-5_f0.92_p200_s7000k_black/checkpoint2400000.pth', map_location='cpu')
     # missing_keys, unexpected_keys = model.load_state_dict(state_dict['model_state_dict'], strict=False)
     # assert len(unexpected_keys) == 0
+
+    # loading model
+    print('loading pre-trained model: /home/xie/code/HumanMotionGeneration/save/mN100_BS1_5e-5_f0.8_p150_s7000k_black_no_fixed_length2/trained_model2.pth')
+    state_dict = torch.load(r'/home/xie/code/HumanMotionGeneration/save/mN100_BS1_5e-5_f0.8_p150_s7000k_black_no_fixed_length2/trained_model2.pth', map_location='cpu')
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    assert len(unexpected_keys) == 0
 
     # loss_type = gd.LossType.MSE
     model.to(dev())
     print("creating data loader...")
-    loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1, split='train')
+    loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=args.batch_size, split='train2')
     val_loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1, split='val')
     #loader = get_dataset_loader(datapath='/media/jan/SSD Spiele/ADLCV/HumanMotionGeneration/test_data/opt_test.txt', batch_size=1)
     # loader = get_dataset_loader(datapath='/media/jan/SSD Spiele/ADLCV/HumanMotionGeneration/dataset/HumanML3D/opt_test.txt', batch_size=64)

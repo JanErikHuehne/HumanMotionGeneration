@@ -787,7 +787,7 @@ class GaussianDiffusion:
             loss_key_xyz.sum(dim=list(range(1, len(loss_key_xyz.shape)))), \
             loss_camera.sum(dim=list(range(1, len(loss_camera.shape)))), \
             loss_key_camera.sum(dim=list(range(1, len(loss_key_camera.shape))))
-        terms["loss"] += (0.4 * (0.1 * loss_xyz + 2 * loss_key_xyz + 5 * loss_camera + 500 * loss_key_camera) + 1.2 * loss)
+        terms["loss"] += (0.4 * (0.1 * loss_xyz + 2 * loss_key_xyz + 0.5 * loss_camera + 20 * loss_key_camera) + 1.2 * loss)
         terms["loss_xyz"], terms["loss_key_xyz"], terms["loss_camera"], terms["loss_key_camera"], terms["loss_reconstruct"] = \
             loss_xyz, loss_key_xyz, loss_camera, loss_key_camera, loss
         # # camara_loss

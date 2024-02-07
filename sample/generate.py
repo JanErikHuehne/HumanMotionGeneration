@@ -80,7 +80,7 @@ def main():
     args.batch_size = args.num_samples  # Sampling a single batch from the testset, with exactly args.num_samples
 
     print('Loading dataset...')
-    loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1, split='val1')
+    loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1, split='train')
     total_num_samples = args.num_samples * args.num_repetitions
 
     print("Creating model and diffusion...")

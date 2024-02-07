@@ -1,6 +1,6 @@
 import copy
 import functools
-import os
+import os, json
 import time
 from types import SimpleNamespace
 import numpy as np
@@ -68,7 +68,7 @@ class TrainLoop:
         self.opt = AdamW(
             self.model_params, lr=self.lr, weight_decay=self.weight_decay
         )
-        self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=self.opt, factor=0.9, patience=120)
+        self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=self.opt, factor=0.8, patience=150)
 
         # if self.resume_step:
             # self._load_optimizer_state()
@@ -149,12 +149,14 @@ class TrainLoop:
         step3 = 0
         camera_loss_temp = None
         val_data = iter(self.val_data)
+        losses_record = []
         for epoch in range(self.num_epochs):
             loss = 0
             step1 = 0
             step2 = 0
-            loss_temp = 0
-            loss_camera_temp = 0
+            large_loss_counter = 0
+            loss_temp = 0 #torch.tensor(0).to(self.model.device)
+            loss_camera_temp = 0 #torch.tensor(0).to(self.model.device)
             print(f'Starting epoch {epoch}')
             for motion, sketch, key_frame in tqdm(self.data):
                 motion = motion.to(self.device)
@@ -162,9 +164,15 @@ class TrainLoop:
                 key_frame = key_frame.to(self.device)
 
                 loss_step, losses_dict_step = self.run_step(motion, sketch, key_frame)
-                loss += loss_step
-                loss_temp += loss_step
-                loss_camera_temp += losses_dict_step["loss_camera"]
+                if loss_step.item() <= 100:  
+                    loss += loss_step.item()
+                    loss_temp += loss_step.item()
+                    loss_camera_temp += losses_dict_step["loss_key_camera"].mean()
+                else:
+                    large_loss_counter += 1
+                    loss += 100
+                    # loss_temp += 100
+                    # loss_camera_temp += losses_dict_step["loss_key_camera"].mean()
 
             # if self.step % self.log_interval == 0:
             #     for k,v in logger.get_current().name2val.items():
@@ -189,18 +197,22 @@ class TrainLoop:
                 self.step += self.batch_size
                 step2 += 1
                 step3 += 1
-                if step3 % (1000 // self.batch_size) == 0:
+                if step3 % (1024 // self.batch_size) == 0:
                     temple_loss = loss_temp / step2
                     camera_loss_temp = loss_camera_temp / step2
                     loss_temp = 0
                     loss_camera_temp = 0
                     step2 = 0
-                    print(f"loss: {temple_loss}, camera_loss: {camera_loss_temp.item()}, lr: {self.opt.param_groups[0]['lr']}")
+                    print(f"loss: {temple_loss}, camera_loss: {camera_loss_temp.mean() if isinstance(camera_loss_temp, torch.Tensor) else camera_loss_temp}, lr: {self.opt.param_groups[0]['lr']}, lc:{large_loss_counter}")
                     self.lr_scheduler.step(temple_loss)
                 if step3 % (50_000 // self.batch_size) == 0:
                     print('saved')
                     self.save()
-                    if step3 % (100_000 // self.batch_size) == 0:
+                    # Loss_PATH = os.path.join(self.args.save_dir, f"loss_{step3}.json")
+                    # assert not (os.path.exists(Loss_PATH))
+                    # with open(Loss_PATH, "w") as f:
+                    #     json.dump({'loss': temple_loss, 'cemera_loss': camera_loss_temp}, f)
+                    if step3 % (150_000 // self.batch_size) == 0:
                         model = self.model
                         # torch.save(model, os.path.join(self.args.save_dir, f'checkpoint{step3 * self.batch_size}'+'.pt'))
                         torch.save({
@@ -209,19 +221,20 @@ class TrainLoop:
                             'optimizer_state_dict': self.opt.state_dict(),
                             'lr': self.opt.param_groups[0]['lr'],
                             'loss': temple_loss,
+                            'losses': losses_record.append(temple_loss)
                         }, os.path.join(self.args.save_dir, f'checkpoint{step3 * self.batch_size}'+'.pth'))
                         # torch.save(model.state_dict(), os.path.join(self.args.save_dir, f'checkpoint{step3 * self.batch_size}'+'.pth'))
                         print("saved")
-                    self.model.eval()
-                    val_data = iter(self.val_data)
-                    motion_val, sketch_val, key_frame_val = next(val_data)
-                    motion_val = motion_val.to(self.device)
-                    sketch_val = sketch_val.to(self.device)
-                    key_frame_val = key_frame_val.to(self.device)
-                    with torch.no_grad():
-                        val_loss_step, val_losses_dict_step = self.val_forward_backward(motion_val, sketch_val, key_frame_val)
-                        print(f"train_camera_loss: {camera_loss_temp.item()}, val_camera_loss: {val_losses_dict_step['loss_camera'].item()}")
-                    self.model.train()
+                    # self.model.eval()
+                    # val_data = iter(self.val_data)
+                    # motion_val, sketch_val, key_frame_val = next(val_data)
+                    # motion_val = motion_val.to(self.device)
+                    # sketch_val = sketch_val.to(self.device)
+                    # key_frame_val = key_frame_val.to(self.device)
+                    # with torch.no_grad():
+                    #     val_loss_step, val_losses_dict_step = self.val_forward_backward(motion_val, sketch_val, key_frame_val)
+                    #     print(f"train_camera_loss: {camera_loss_temp.item()}, val_camera_loss: {val_losses_dict_step['loss_camera'].item()}")
+                    # self.model.train()
             step1 += 1
             print("loss : {}".format(loss / len(self.data)))# (len(self.data))))
             # self.lr_scheduler.step(loss / len(self.data))
@@ -285,6 +298,8 @@ class TrainLoop:
             # )
            
             loss.backward()
+            # gradient clip
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10)
             return loss, losses
 
     def val_forward_backward(self, batch, sketch, keyframe):
