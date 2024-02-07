@@ -1,27 +1,26 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+# import torch.nn.fun
+from transformers import CLIPProcessor, CLIPModel
 import clip
 from model.rotation2xyz import Rotation2xyz
 
-
-
 class MDM(nn.Module):
 
-    def __init__(self, nfeats=263, latent_dim=256, ff_size=1024, num_layers=8, num_heads=4, dropout=0.1,
-                 activation="gelu", datset='humanml3d', clip_dim=512):
+    def __init__(self, nfeats=263, latent_dim=512, ff_size=1024, num_layers=8, num_heads=4, dropout=0.1,
+                 activation="gelu", dataset='humanml3d', clip_dim=512):
             super().__init__()
             self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
             self.num_heads = num_heads
             self.latent_dim = latent_dim
             self.ff_size = ff_size
             self.dropout = dropout
+            self.dataset = dataset
             self.activation = activation
             self.num_layers = num_layers
             self.input_feats = 263
             self.njoints = 263
-            self.dataset = 'humanml'
             self.nfeats = 1
             self.input_process = InputProcess(self.input_feats, self.latent_dim)
             self.output_process = OutputProcess(self.input_feats, self.latent_dim, self.njoints,
@@ -29,42 +28,76 @@ class MDM(nn.Module):
             self.sequence_pos_encoder = PositionalEncoding(self.latent_dim, self.dropout)
             self.embed_timestep = TimestepEmbedder(self.latent_dim, self.sequence_pos_encoder)
             self.rot2xyz = Rotation2xyz(device='cpu', dataset=self.dataset)
-
             seqTransEncoderLayer = nn.TransformerEncoderLayer(d_model=latent_dim,
                                                               nhead=self.num_heads,
                                                               dim_feedforward=self.ff_size,
                                                               dropout=self.dropout,
-                                                              activation = self.activation
+                                                              activation=self.activation
                                                               )
+            
             self.seqTransEncoder = nn.TransformerEncoder(seqTransEncoderLayer, num_layers=self.num_layers)
 
-            self.embded_timestep = TimestepEmbedder(latent_dim=self.latent_dim, sequence_pos_encoder=self.sequence_pos_encoder )
-            self.sketchEncoder = Sketch_Embedder(input_dim=200, latent_dim=self.latent_dim)
+            self.embded_timestep = TimestepEmbedder(latent_dim=self.latent_dim, sequence_pos_encoder=self.sequence_pos_encoder)
+            #self.sketchEncoder = Sketch_Embedder(input_dim=200, latent_dim=self.latent_dim)
+            model_name = "openai/clip-vit-base-patch16"
+            self.sketchEncoder = CLIPModel.from_pretrained(model_name)
+            self.sketchEncoder.eval()
+            for param in self.sketchEncoder.parameters():
+                param.requires_grad = False
+            #######
+            self.linear_layer = nn.Linear(clip_dim, latent_dim)
+            self.linear_layer2 = nn.Sequential(
+                nn.Linear(self.latent_dim, self.latent_dim),
+                nn.SiLU(),
+                nn.Linear(self.latent_dim, self.latent_dim),
+            )
+            #######
+                     
 
-    def forward(self, x, y, timesteps):
+    def forward(self, x, y, key_frames,timesteps):
         """
         x: [batch_size, n_feats, frames] x_t in the MDM paper
         y: [batch_size, 1, 200, 200] Sketch ImageInput
         timesteps: [batch_size] (int)
         """
-
-        x = x.to(self.device)
-        y = y.to(self.device)
+        batch_size = x.shape[0]
+        x = x.to(self.device) #x: [batch_size, n_feats, frames] x_t in the MDM paper
+        y = y.to(self.device) #y: Sketch ImageInput
         timesteps = timesteps.to(self.device)
+        time_emb = self.embed_timestep(timesteps) # yields [1, bs, d]
+        ######
+        # time_emb_5 = time_emb.repeat(5, 1, 1) # yields [5, bs, d]
+        #######
+        #print("TIMESTEP EMBEDDING", emb.shape)
+        #####
+        # y['pixel_values'] = y['pixel_values'].reshape(-1, 3, 224, 224)
+        # sketches_emb = self.sketchEncoder.get_image_features(**y) #CLIP image encoder
 
-        emb = self.embed_timestep(timesteps) # yields [1, bs, d]
+        ######
+        sketches_emb = self.linear_layer(y) + y
+        #######
+        # sketches_emb = sketches_emb.reshape(-1, 5, 512)  # [bs, 5(sketches), d]
+        sketches_emb = sketches_emb.permute(1, 0, 2)  #[5(sketches), bs, d]
 
-        sketch_embbedding = self.sketchEncoder(y)
-
-        # HERE WE ADD THE ENCODING OF OUR 2D-SKETCHES
-        emb +=  sketch_embbedding
-
-
+        ######
+        frames_emb = torch.squeeze(self.sequence_pos_encoder.pe[key_frames[:, 0]], dim=1)
+        frames_emb = torch.stack((frames_emb, torch.squeeze(self.sequence_pos_encoder.pe[key_frames[:, 1]], dim=1)), dim=0)
+        frames_emb = torch.cat((frames_emb, self.sequence_pos_encoder.pe[key_frames[:, 2]].permute(1, 0, 2)), dim=0)
+        frames_emb = torch.cat((frames_emb, self.sequence_pos_encoder.pe[key_frames[:, 3]].permute(1, 0, 2)), dim=0)
+        frames_emb = torch.cat((frames_emb, self.sequence_pos_encoder.pe[key_frames[:, 4]].permute(1, 0, 2)), dim=0)
+        frames_emb = self.linear_layer2(frames_emb) + frames_emb
+        # ######
+        # # HERE WE ADD THE ENCODING OF OUR 2D-SKETCHES
+        # # sketches_emb1, frames_emb1 = torch.zeros_like(sketches_emb), torch.zeros_like(frames_emb)
+        emb = sketches_emb + frames_emb
+        # overfitting
+        # emb = torch.zeros(5, batch_size, self.latent_dim).to(self.device)
+        emb = torch.cat((time_emb, emb), axis=0)
 
         x = self.input_process(x)
-        xseq = torch.cat((emb, x), axis=0)  # [seqlen+1, bs, d]
-        xseq = self.sequence_pos_encoder(xseq) # [seqlen+1, bs, d]
-        output = self.seqTransEncoder(xseq)[1:] # [seqlen, bs, d]
+        xseq = torch.cat((emb, x), axis=0)  # [seqlen+5+1, bs, d]
+        xseq = self.sequence_pos_encoder(xseq)  # [seqlen+5+1, bs, d]
+        output = self.seqTransEncoder(xseq)[6:]  # [seqlen, bs, d]
         output = self.output_process(output)
 
         #output = self.output_process(output) # [bs, n_joints, nfeas, n_frames]
@@ -76,7 +109,7 @@ class Sketch_Embedder(nn.Module):
         self.input_dim = input_dim
         self.latent_dim = latent_dim
         self.sketch_embed = nn.Sequential(
-                            nn.Conv2d(in_channels=11, out_channels=32, kernel_size=3),
+                            nn.Conv2d(in_channels=1, out_channels=32, kernel_size=3),
                             nn.ReLU(),
                             nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
                             nn.ReLU(),
@@ -110,7 +143,8 @@ class Sketch_Embedder(nn.Module):
     def forward(self, x):
         self.input_dimension = x.shape[1]
         res = self.sketch_embed(x)
-        res = torch.reshape(res, shape=(res.shape[0], 1, res.shape[1]))
+        res = torch.reshape(res, shape=(1, res.shape[0], res.shape[1]))
+        #print("CNN FORWARD SHAPE", res.shape)
         return res 
     
 class TimestepEmbedder(nn.Module):

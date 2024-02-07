@@ -1,17 +1,17 @@
 import copy
 import functools
-import os
+import os, json
 import time
 from types import SimpleNamespace
 import numpy as np
 import torch as th
-import blobfile as bf
+#import blobfile as bf
 import torch
 from torch.optim import AdamW
 import diffusion.Gaussian_diffusion as gd
 # from diffusion import logger
 # from utils import dist_util
-from train_S2M import dev
+from .train_S2M import dev
 # from diffusion.fp16_util import MixedPrecisionTrainer
 # from diffusion.resample import LossAwareSampler, UniformSampler
 from tqdm import tqdm
@@ -28,7 +28,7 @@ INITIAL_LOG_LOSS_SCALE = 20.0
 
 
 class TrainLoop:
-    def __init__(self, args,  model, diffusion, data):
+    def __init__(self, args,  model, diffusion, data, val_data):
         self.args = args
         self.dataset = args.dataset
         # self.train_platform = train_platform
@@ -36,6 +36,7 @@ class TrainLoop:
         self.diffusion = diffusion
         # self.cond_mode = model.cond_mode
         self.data = data
+        self.val_data = val_data
         self.batch_size = args.batch_size
         self.microbatch = args.batch_size  # deprecating this option
         self.lr = args.lr
@@ -67,15 +68,15 @@ class TrainLoop:
         self.opt = AdamW(
             self.model_params, lr=self.lr, weight_decay=self.weight_decay
         )
+        self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=self.opt, factor=0.8, patience=150)
+
         # if self.resume_step:
             # self._load_optimizer_state()
             # Model was resumed, either due to a restart or a checkpoint
             # being specified at the command line.
 
-        self.device = torch.device("cpu")
-        if torch.cuda.is_available() and dev() != 'cpu':
-            self.device = torch.device(dev())
-
+        self.device = dev()
+    
         self.schedule_sampler_type = 'uniform'
         # self.schedule_sampler = create_named_schedule_sampler(self.schedule_sampler_type, diffusion)
         # self.eval_wrapper, self.eval_data, self.eval_gt_data = None, None, None
@@ -123,6 +124,7 @@ class TrainLoop:
     #             opt_checkpoint, map_location=dist_util.dev()
     #         )
     #         self.opt.load_state_dict(state_dict)
+
     def sample(self, batch_size):
         w = np.ones([self.log_interval])
         p = w / np.sum(w)
@@ -131,23 +133,47 @@ class TrainLoop:
         return indices
 
     def run_loop(self):
-
+        self.num_epochs = self.num_steps // len(self.data)
+        self.model.train()
+        # motion = None
+        # sketch = None
+        # key_frame = None
+        # for i, (motion1, sketch1, key_frame1) in enumerate(self.data):
+        #     if i == 0:
+        #         motion = motion1.to(self.device)
+        #         sketch = sketch1.to(self.device)
+        #         key_frame = key_frame1.to(self.device)
+        #         # print(key_frame)
+        #         break
+        print(f'number of epochs:{self.num_epochs}')
+        step3 = 0
+        camera_loss_temp = None
+        val_data = iter(self.val_data)
+        losses_record = []
         for epoch in range(self.num_epochs):
+            loss = 0
+            step1 = 0
+            step2 = 0
+            large_loss_counter = 0
+            loss_temp = 0 #torch.tensor(0).to(self.model.device)
+            loss_camera_temp = 0 #torch.tensor(0).to(self.model.device)
             print(f'Starting epoch {epoch}')
-            # for motion, sketch in tqdm(self.data):
-            for motion_first, sketch_first in self.data:
-                self.motion, self.sketch = motion_first, sketch_first
-                break
+            for motion, sketch, key_frame in tqdm(self.data):
+                motion = motion.to(self.device)
+                sketch = sketch.to(self.device)
+                key_frame = key_frame.to(self.device)
 
-            ###
-            # if not (not self.lr_anneal_steps or self.step + self.resume_step < self.lr_anneal_steps):
-            #     break
-            ###
-            motion, sketch = self.motion, self.sketch
-            motion = motion.to(self.device)
-            sketch = sketch.to(self.device)
+                loss_step, losses_dict_step = self.run_step(motion, sketch, key_frame)
+                if loss_step.item() <= 100:  
+                    loss += loss_step.item()
+                    loss_temp += loss_step.item()
+                    loss_camera_temp += losses_dict_step["loss_key_camera"].mean()
+                else:
+                    large_loss_counter += 1
+                    loss += 100
+                    # loss_temp += 100
+                    # loss_camera_temp += losses_dict_step["loss_key_camera"].mean()
 
-            self.run_step(motion, sketch)
             # if self.step % self.log_interval == 0:
             #     for k,v in logger.get_current().name2val.items():
             #         if k == 'loss':
@@ -158,31 +184,78 @@ class TrainLoop:
             #         else:
             #             self.train_platform.report_scalar(name=k, value=v, iteration=self.step, group_name='Loss')
 
-            if self.step % self.save_interval == 0:
-                self.save()
-                self.model.eval()
+            # if self.step % self.save_interval == 0:
+            #     self.save()
+            #     self.model.eval()
                 # self.evaluate()
-                self.model.train()
+
 
                 # Run for a finite amount of time in integration tests.
-                if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
-                    return
-            self.step += 1
+                # if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
+                #     return
+                # step1 += self.data
+                self.step += self.batch_size
+                step2 += 1
+                step3 += 1
+                if step3 % (1024 // self.batch_size) == 0:
+                    temple_loss = loss_temp / step2
+                    camera_loss_temp = loss_camera_temp / step2
+                    loss_temp = 0
+                    loss_camera_temp = 0
+                    step2 = 0
+                    print(f"loss: {temple_loss}, camera_loss: {camera_loss_temp.mean() if isinstance(camera_loss_temp, torch.Tensor) else camera_loss_temp}, lr: {self.opt.param_groups[0]['lr']}, lc:{large_loss_counter}")
+                    self.lr_scheduler.step(temple_loss)
+                if step3 % (50_000 // self.batch_size) == 0:
+                    print('saved')
+                    self.save()
+                    # Loss_PATH = os.path.join(self.args.save_dir, f"loss_{step3}.json")
+                    # assert not (os.path.exists(Loss_PATH))
+                    # with open(Loss_PATH, "w") as f:
+                    #     json.dump({'loss': temple_loss, 'cemera_loss': camera_loss_temp}, f)
+                    if step3 % (150_000 // self.batch_size) == 0:
+                        model = self.model
+                        # torch.save(model, os.path.join(self.args.save_dir, f'checkpoint{step3 * self.batch_size}'+'.pt'))
+                        torch.save({
+                            'step': step3 * self.batch_size,
+                            'model_state_dict': model.state_dict(),
+                            'optimizer_state_dict': self.opt.state_dict(),
+                            'lr': self.opt.param_groups[0]['lr'],
+                            'loss': temple_loss,
+                            'losses': losses_record.append(temple_loss)
+                        }, os.path.join(self.args.save_dir, f'checkpoint{step3 * self.batch_size}'+'.pth'))
+                        # torch.save(model.state_dict(), os.path.join(self.args.save_dir, f'checkpoint{step3 * self.batch_size}'+'.pth'))
+                        print("saved")
+                    # self.model.eval()
+                    # val_data = iter(self.val_data)
+                    # motion_val, sketch_val, key_frame_val = next(val_data)
+                    # motion_val = motion_val.to(self.device)
+                    # sketch_val = sketch_val.to(self.device)
+                    # key_frame_val = key_frame_val.to(self.device)
+                    # with torch.no_grad():
+                    #     val_loss_step, val_losses_dict_step = self.val_forward_backward(motion_val, sketch_val, key_frame_val)
+                    #     print(f"train_camera_loss: {camera_loss_temp.item()}, val_camera_loss: {val_losses_dict_step['loss_camera'].item()}")
+                    # self.model.train()
+            step1 += 1
+            print("loss : {}".format(loss / len(self.data)))# (len(self.data))))
+            # self.lr_scheduler.step(loss / len(self.data))
+            # print(key_frame)
         ###
         # if not (not self.lr_anneal_steps or self.step + self.resume_step < self.lr_anneal_steps):
             # break
         ###
         # Save the last checkpoint if it wasn't already saved.
-        if (self.step - 1) % self.save_interval != 0:
-            self.save()
-            # self.evaluate()
-    def run_step(self, batch, sketch):
-        self.forward_backward(batch, sketch)
+        #     if epoch % 10 == 0:
+        #         self.save()
+        #         print('saved')
+                # self.evaluate()
+    def run_step(self, batch, sketch, keyframe):
+        loss, losses = self.forward_backward(batch, sketch, keyframe)
         self.opt.step()
         self._anneal_lr()
+        return loss, losses
         # self.log_step()
 
-    def forward_backward(self, batch, sketch):
+    def forward_backward(self, batch, sketch, keyframe):
         ##
         # zero_grad
 
@@ -197,6 +270,7 @@ class TrainLoop:
             assert self.microbatch == self.batch_size
             micro = batch
             micro_sketch = sketch
+            micro_keyframe = keyframe
             last_batch = (i + self.microbatch) >= batch.shape[0]
             t = self.sample(micro.shape[0])
 
@@ -210,7 +284,7 @@ class TrainLoop:
             # )
 
 
-            losses = self.diffusion.training_losses(self.model, x_start=micro, sketch=micro_sketch, t=t)
+            losses = self.diffusion.training_losses(self.model, x_start=micro, sketch=micro_sketch, keyframe=micro_keyframe,t=t)
 
 
             # if isinstance(self.schedule_sampler, LossAwareSampler):
@@ -218,20 +292,71 @@ class TrainLoop:
             #         t, losses["loss"].detach()
             #     )
 
-            loss = (losses["loss"] ).mean()
+            loss = (losses["loss"]).mean()
             # log_loss_dict(
             #     self.diffusion, t, {k: v  for k, v in losses.items()}
             # )
-            print(f'loss: {loss}')
+           
             loss.backward()
+            # gradient clip
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10)
+            return loss, losses
+
+    def val_forward_backward(self, batch, sketch, keyframe):
+        ##
+        # zero_grad
+
+        model_params = self.model_params
+        for param in model_params:
+            if param.grad is not None:
+                param.grad.detach_()
+                param.grad.zero_()
+        for i in range(0, batch.shape[0], self.microbatch):
+            # Eliminates the microbatch feature
+            assert i == 0
+            assert self.microbatch == self.batch_size
+            micro = batch
+            micro_sketch = sketch
+            micro_keyframe = keyframe
+            last_batch = (i + self.microbatch) >= batch.shape[0]
+            t = self.sample(micro.shape[0])
+
+            # compute_losses = functools.partial(
+            #     self.diffusion.training_losses,
+            #     self.ddp_model,
+            #     micro,  # [bs, ch, image_size, image_size]
+            #     t,  # [bs](int) sampled timesteps
+            #     model_kwargs=micro_sketch,
+            #     dataset=self.data
+            # )
+
+            losses = self.diffusion.training_losses(self.model, x_start=micro, sketch=micro_sketch,
+                                                    keyframe=micro_keyframe, t=t)
+
+            # if isinstance(self.schedule_sampler, LossAwareSampler):
+            #     self.schedule_sampler.update_with_local_losses(
+            #         t, losses["loss"].detach()
+            #     )
+
+            loss = (losses["loss"]).mean()
+            # log_loss_dict(
+            #     self.diffusion, t, {k: v  for k, v in losses.items()}
+            # )
+
+            # loss.backward()
+            return loss, losses
 
     def _anneal_lr(self):
-        if not self.lr_anneal_steps:
-            return
-        frac_done = (self.step + self.resume_step) / self.lr_anneal_steps
-        lr = self.lr * (1 - frac_done)
-        for param_group in self.opt.param_groups:
-            param_group["lr"] = lr
+        pass
+        # if True:
+        #     lr = self.lr * np.exp(-1.2e-4 * self.step)
+        #     for param_group in self.opt.param_groups:
+        #         param_group["lr"] = lr
+        #     return
+        # frac_done = (self.step + self.resume_step) / self.lr_anneal_steps
+        # lr = self.lr * (1 - frac_done)
+        # for param_group in self.opt.param_groups:
+        #     param_group["lr"] = lr
 
     # def log_step(self):
     #     logger.logkv("step", self.step + self.resume_step)
@@ -267,8 +392,10 @@ class TrainLoop:
     def save(self):
         model = self.model  # Replace MyModel with your model class
         # model.load_state_dict(torch.load('model_state_dict.pth'))
-        torch.save(model, './save/trained_model1')
-        torch.save(model.state_dict(), "./save/trained_model2")
+        # Get the path of the current file
+        # torch.save(model, os.path.join(self.args.save_dir, 'trained_model1.pt'))
+        torch.save(model.state_dict(), os.path.join(self.args.save_dir, 'trained_model2.pth'))
+        print("saved")
 
 
 def parse_resume_step_from_filename(filename):

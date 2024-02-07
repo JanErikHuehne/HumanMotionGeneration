@@ -5,10 +5,13 @@ https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0
 
 Docstrings have been added, as well as DDIM sampling and a new collection of beta schedules.
 """
-
+import matplotlib.pyplot as plt
+from os.path import join as pjoin
+import os
+from scipy.spatial.transform import Rotation as R
 import enum
 import math
-
+from data_loaders.humanml.utils.plot_script2 import generate_sketches
 import numpy as np
 import torch
 import torch as th
@@ -16,6 +19,7 @@ from copy import deepcopy
 # from diffusion.nn import mean_flat, sum_flat
 # from diffusion.losses import normal_kl, discretized_gaussian_log_likelihood
 from data_loaders.humanml.scripts import motion_process
+from data_loaders.humanml.scripts.motion_process import recover_from_ric
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps, scale_betas=1.):
     """
@@ -134,12 +138,16 @@ class GaussianDiffusion:
         lambda_root_vel=0.,
         lambda_vel_rcxyz=0.,
         lambda_fc=0.,
+        loader=None,
+        val_loader = None
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
         self.loss_type = LossType.MSE
         self.rescale_timesteps = rescale_timesteps
         self.data_rep = data_rep
+        self.loader = loader
+        self.val_loader = val_loader
 
         if data_rep != 'rot_vel' and lambda_pose != 1.:
             raise ValueError('lambda_pose is relevant only when training on velocities!')
@@ -290,7 +298,7 @@ class GaussianDiffusion:
         return posterior_mean, posterior_variance, posterior_log_variance_clipped
 
     def p_mean_variance(
-        self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None, sketch=None
+        self, model, x, t, clip_denoised=True, denoised_fn=None, model_kwargs=None, sketch=None, keyframe=None
     ):
         """
         Apply the model to get p(x_{t-1} | x_t), as well as a prediction of
@@ -320,7 +328,7 @@ class GaussianDiffusion:
         # model_output = model(x, self._scale_timesteps(t), **model_kwargs)
         x1 = torch.squeeze(x, dim=0)
         x1 = x1.permute((1, 2, 0))
-        model_output = model(x1, sketch, self._scale_timesteps(t), **model_kwargs)
+        model_output = model(x1, sketch, keyframe, self._scale_timesteps(t), **model_kwargs)
         model_output = torch.unsqueeze(model_output, dim=0)
         model_output = model_output.permute((0, 3, 1, 2)) #[1, 263, 1, 82],[bs,n_joints, n_feats, frames]
         # if 'inpainting_mask' in model_kwargs['y'].keys() and 'inpainted_motion' in model_kwargs['y'].keys():
@@ -500,7 +508,8 @@ class GaussianDiffusion:
         cond_fn=None,
         model_kwargs=None,
         const_noise=False,
-        sketch=None
+        sketch=None,
+        keyframe=None
     ):
         """
         Sample x_{t-1} from the model at the given timestep.
@@ -524,6 +533,7 @@ class GaussianDiffusion:
             x,
             t,
             sketch=sketch,
+            keyframe=keyframe,
             clip_denoised=clip_denoised,
             denoised_fn=denoised_fn,
             model_kwargs=model_kwargs,
@@ -543,7 +553,7 @@ class GaussianDiffusion:
         # print('mean', out["mean"].shape, out["mean"])
         # print('log_variance', out["log_variance"].shape, out["log_variance"])
         # print('nonzero_mask', nonzero_mask.shape, nonzero_mask)
-        sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise # why we need to add noise again?
+        sample = out["mean"] + nonzero_mask * th.exp(0.5 * out["log_variance"]) * noise # why we need to add noise again? for sampling
         return {"sample": sample, "pred_xstart": out["pred_xstart"]}
 
     def p_sample_with_grad(
@@ -611,7 +621,8 @@ class GaussianDiffusion:
         cond_fn_with_grad=False,
         dump_steps=None,
         const_noise=False,
-        sketch=None
+        sketch=None,
+        keyframe=None
     ):
         """
         Generate samples from the model.
@@ -652,7 +663,8 @@ class GaussianDiffusion:
             randomize_class=randomize_class,
             cond_fn_with_grad=cond_fn_with_grad,
             const_noise=const_noise,
-            sketch=sketch
+            sketch=sketch,
+            keyframe=keyframe
         )):
             if dump_steps is not None and i in dump_steps:
                 dump.append(deepcopy(sample["sample"]))
@@ -677,7 +689,8 @@ class GaussianDiffusion:
         randomize_class=False,
         cond_fn_with_grad=False,
         const_noise=False,
-        sketch=None
+        sketch=None,
+        keyframe=None
     ):
         """
         Generate samples from the model and yield intermediate samples from
@@ -723,6 +736,7 @@ class GaussianDiffusion:
                     denoised_fn=denoised_fn,
                     cond_fn=cond_fn,
                     sketch=sketch,
+                    keyframe=keyframe,
                     model_kwargs=model_kwargs,
                     const_noise=const_noise,
                 )
@@ -730,7 +744,7 @@ class GaussianDiffusion:
                 img = out["sample"]
 
 
-    def training_losses(self, model, x_start, t, sketch=None, model_kwargs=None, noise=None, dataset=None):
+    def training_losses(self, model, x_start, t, sketch=None, keyframe= None, model_kwargs=None, noise=None, dataset=None):
         """
         Compute training losses for a single timestep.
 
@@ -760,14 +774,130 @@ class GaussianDiffusion:
         x_t = self.q_sample(x_start, t, noise=noise)
 
         terms = {}
-
-        model_output = model(x_t, sketch, self._scale_timesteps(t), **model_kwargs)
+        terms["loss"] = 0
+        model_output = model(x_t, sketch, keyframe, self._scale_timesteps(t), **model_kwargs)
         target = x_start
         assert target.shape == model_output.shape
-        loss = self.l2_loss(target, model_output) # mean_flat(rot_mse)
-        terms["loss"] = loss.sum(dim=list(range(1, len(loss.shape))))
+        loss = self.l2_loss(target, model_output)  # mean_flat(rot_mse)
+        loss = loss.sum(dim=list(range(1, len(loss.shape))))
+        loss = loss / (model_output.shape[1] * model_output.shape[2])
+        # camara_loss
+        loss_xyz, loss_key_xyz, loss_camera, loss_key_camera = self.xyz_camera_loss(model_output=model_output, target=target, model=model)
+        loss_xyz, loss_key_xyz, loss_camera, loss_key_camera = loss_xyz.sum(dim=list(range(1, len(loss_xyz.shape)))), \
+            loss_key_xyz.sum(dim=list(range(1, len(loss_key_xyz.shape)))), \
+            loss_camera.sum(dim=list(range(1, len(loss_camera.shape)))), \
+            loss_key_camera.sum(dim=list(range(1, len(loss_key_camera.shape))))
+        terms["loss"] += (0.4 * (0.1 * loss_xyz + 2 * loss_key_xyz + 0.5 * loss_camera + 20 * loss_key_camera) + 1.2 * loss)
+        terms["loss_xyz"], terms["loss_key_xyz"], terms["loss_camera"], terms["loss_key_camera"], terms["loss_reconstruct"] = \
+            loss_xyz, loss_key_xyz, loss_camera, loss_key_camera, loss
+        # # camara_loss
+        # n_joints = 22
+        # model_output = torch.unsqueeze(model_output, dim=0)
+        # model_output = model_output.permute((0, 3, 1, 2))
+        # # sample = self.loader.dataset.t2m_dataset.inverse_norm(model_output.permute(0, 2, 3, 1)).float()
+        # sample = model_output.permute(0, 2, 3, 1) * torch.tensor(self.loader.dataset.t2m_dataset.std).to(model_output.device) + torch.tensor(self.loader.dataset.t2m_dataset.mean).to(model_output.device)
+        # sample = sample.float()
+        # sample = recover_from_ric(sample, n_joints)
+        # sample = sample.view(-1, *sample.shape[2:]).permute(0, 2, 3, 1)
+        #
+        # rot2xyz_pose_rep = 'xyz'
+        # rot2xyz_mask = None
+        # sample = model.rot2xyz(x=sample, mask=rot2xyz_mask, pose_rep=rot2xyz_pose_rep, glob=True, translation=True,
+        #                        jointstype='smpl', vertstrans=True, betas=None, beta=0, glob_rot=None,
+        #                        get_rotations_back=False)
+        # key_sample = sample[..., [0, 10, 20, 30, 40]]
+        # target = torch.unsqueeze(target, dim=0)
+        # key_target = target * torch.tensor(self.loader.dataset.t2m_dataset.std).to(target.device) + torch.tensor(self.loader.dataset.t2m_dataset.mean).to(target.device)
+        # key_target = key_target.float()
+        # key_target = recover_from_ric(key_target, n_joints)
+        # key_target = key_target.view(-1, *key_target.shape[2:]).permute(0, 2, 3, 1)
+        # key_target = key_target[..., [0, 10, 20, 30, 40]]  # can be changed with joints.npy
 
         return terms
+
+    def xyz_camera_loss(self, model_output=None, target=None, model=None):
+        n_joints = 22
+        model_output = torch.unsqueeze(model_output, dim=0)
+        model_output = model_output.permute((0, 3, 1, 2))
+        # sample = self.loader.dataset.t2m_dataset.inverse_norm(model_output.permute(0, 2, 3, 1)).float()
+        sample = model_output.permute(0, 2, 3, 1) * torch.tensor(self.loader.dataset.t2m_dataset.std).to(
+            model_output.device) + torch.tensor(self.loader.dataset.t2m_dataset.mean).to(model_output.device)
+        sample = sample.float()
+        sample = recover_from_ric(sample, n_joints)
+        sample = sample.view(-1, *sample.shape[2:]).permute(0, 2, 3, 1)
+
+        rot2xyz_pose_rep = 'xyz'
+        rot2xyz_mask = None
+        sample = model.rot2xyz(x=sample, mask=rot2xyz_mask, pose_rep=rot2xyz_pose_rep, glob=True, translation=True,
+                               jointstype='smpl', vertstrans=True, betas=None, beta=0, glob_rot=None,
+                               get_rotations_back=False)
+        key_sample = sample[..., [0, 10, 20, 30, 40]]
+        target = torch.unsqueeze(target, dim=0)
+        target = target * torch.tensor(self.loader.dataset.t2m_dataset.std).to(target.device) + torch.tensor(
+            self.loader.dataset.t2m_dataset.mean).to(target.device)
+        target = target.float()
+        target = recover_from_ric(target, n_joints)
+        target = target.view(-1, *target.shape[2:]).permute(0, 2, 3, 1)
+        key_target = target[..., [0, 10, 20, 30, 40]]
+        ####
+        # target_test = torch.squeeze(target).permute(2, 0, 1).cpu().numpy().copy()
+        # generate_sketches('1', r'F:\ADL\CV\s2m_with_joint_position_loss\save', [[0, 2, 5, 8, 11], [0, 1, 4, 7, 10], [0, 3, 6, 9, 12, 15], [9, 14, 17, 19, 21], [9, 13, 16, 18, 20]], target_test, radius=1.4)
+        ####
+        loss1 = self.l2_loss(target, sample) / (sample.shape[1] * sample.shape[3])
+        loss2 = self.l2_loss(key_target, key_sample) / (key_sample.shape[1] * key_sample.shape[3])
+        loss3 = self.camera_loss(sample=sample, target=target)
+        loss4 = loss3[:, [0, 10, 20, 30, 40], ...]
+
+        return loss1, loss2, loss3, loss4
+
+    def camera_loss(self, sample=None, target=None):
+        camera_position = torch.tensor([0, 0, 7]).to(sample.device)
+        rot_mat = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        angle_x, angle_y, angle_z = 20, 5, 180  # Angles in degrees
+        rotation = R.from_euler('xyz', [angle_x, angle_y, angle_z], degrees=True)
+        rotation_matrix = rotation.as_matrix()
+        rot_mat = np.dot(rotation_matrix, rot_mat)
+        rot_mat = torch.tensor(rot_mat).to(sample.device).float()
+        f = sample.permute(2, 1, 0, 3)
+        f_reshaped = f.reshape(3, -1)  # Reshapes f to a shape of (3, 22*1*41)
+        f_transformed = torch.matmul(rot_mat, f_reshaped)
+        f_transformed = f_transformed.reshape(f.shape)
+        f = f_transformed.permute(2, 3, 1, 0)
+        f -= camera_position
+        points2D = 3 * f[..., :2] / f[..., 2, None]
+        f_target = target.permute(2, 1, 0, 3)
+        f_target_reshaped = f_target.reshape(3, -1)
+        f_target_transformed = torch.matmul(rot_mat, f_target_reshaped)
+        f_target_transformed = f_target_transformed.reshape(f_target.shape)
+        f_target = f_target_transformed.permute(2, 3, 1, 0)
+        f_target -= camera_position
+        points2D_target = 3 * f_target[..., :2] / f_target[..., 2, None]
+
+
+
+        """
+        visualization
+        
+        for i in range(41):
+            points2D_target_np = torch.squeeze(points2D_target).cpu().numpy()[i]
+            points2D_target_np *= 1.4
+            colors = ['red', 'orange', 'pink', 'green', 'blue']
+            for c, color in zip([[0, 2, 5, 8, 11], [0, 1, 4, 7, 10], [0, 3, 6, 9, 12, 15], [9, 14, 17, 19, 21], [9, 13, 16, 18, 20]], colors):
+                plt.plot(points2D_target_np[c, 0], points2D_target_np[c, 1], linewidth=4, color="black")
+            plt.xlim(points2D_target_np[0, 0] - 0.6, points2D_target_np[0, 0] + 0.6)
+            plt.ylim(points2D_target_np[0, 1] - 0.7, points2D_target_np[0, 1] + 0.5)
+            plt.axis('off')
+            save_path = r'F:\ADL\CV\s2m_with_joint_position_loss\save\3'
+            os.makedirs(save_path, exist_ok=True)
+            print(save_path)
+            plt.savefig(pjoin(save_path, f"{i}.png"))
+            plt.clf()
+        
+
+        return
+        """
+        return self.l2_loss(points2D, points2D_target) / (points2D.shape[1] * points2D.shape[2])
+
 
     def fc_loss_rot_repr(self, gt_xyz, pred_xyz, mask):
         def to_np_cpu(x):
