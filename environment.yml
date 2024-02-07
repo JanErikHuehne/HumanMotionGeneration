@@ -1,4 +1,4 @@
-name: ADL2
+name: S2M
 channels:
   - pytorch
   - nvidia
