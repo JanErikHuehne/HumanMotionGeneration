@@ -1,9 +1,9 @@
-# S2M : Human motion generation 
+# Sketches to Motion (S2M) : Human motion generation with 2D constraints
 
 
 [//]: # (![teaser]&#40;https://github.com/GuyTevet/mdm-page/raw/main/static/figures/github.gif&#41;)
 
-#### Our repository is established on the basis of [Motion-Diffusion-Model](https://github.com/GuyTevet/motion-diffusion-model).
+#### Our repository is built on [Motion-Diffusion-Model](https://github.com/GuyTevet/motion-diffusion-model).
 
 
 ![example](user_output/fixed_length/user_input_2_seed10/input2_rendered.png)
@@ -26,6 +26,8 @@ bash prepare/download_smpl_files.sh
 
 
 ### 2. Get data
+
+#### if you only want to use pre-trained model to generate motion on customized sketches, you can skip this step.
 
 <details>
   <summary><b>HumanML3D</b></summary>
@@ -90,4 +92,14 @@ python -m sample.generate_customized --model_path ./user_output/fixed_length/fix
 
 ![example](user_output/fixed_length/user_input_2_seed10/sample00_rep01_0.gif)
 
-## To be finished
+### 4. Train S2M model 
+
+```bash
+python -m python -m train.train_S2M --save_dir save/my_S2M --dataset humanml
+```
+
+### 5. Evaluation 
+```bash
+python -m python -m model_eval.model_eval
+```
+
