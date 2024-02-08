@@ -1,4 +1,4 @@
-# Sketches to Motion (S2M) : Human motion generation with 2D constraints
+# Sketch to Motion (S2M) : Human motion generation with 2D constraints
 
 
 [//]: # (![teaser]&#40;https://github.com/GuyTevet/mdm-page/raw/main/static/figures/github.gif&#41;)
@@ -34,7 +34,7 @@ bash prepare/download_smpl_files.sh
 
 There are two paths to get the data:
 
-(a) **Go the easy way if** you just want to generate text-to-motion (excluding editing which does require motion capture data)
+(a) **Go the easy way if** you just want to generate sketches-to-motion
 
 (b) **Get full data** to train and evaluate the model.
 
@@ -47,7 +47,7 @@ There are two paths to get the data:
 cd ..
 git clone https://github.com/EricGuo5513/HumanML3D.git
 unzip ./HumanML3D/HumanML3D/texts.zip -d ./HumanML3D/HumanML3D/
-cp -r HumanML3D/HumanML3D motion-diffusion-model/dataset/HumanML3D
+cp -r HumanML3D/HumanML3D HumanMotionGeneration/test_data
 cd HumanMotionGeneration
 ```
 
@@ -60,8 +60,6 @@ then copy the result dataset to our repository:
 ```shell
 cp -r ../HumanML3D/HumanML3D ./test_data
 ```
-
-**KIT** - Download from [HumanML3D](https://github.com/EricGuo5513/HumanML3D.git) (no processing needed this time) and the place result in `./dataset/KIT-ML`
 </details>
 
 <details>
