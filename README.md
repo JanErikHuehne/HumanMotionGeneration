@@ -95,11 +95,11 @@ python -m sample.generate_customized --model_path ./user_output/fixed_length/fix
 ### 4. Train S2M model 
 
 ```bash
-python -m python -m train.train_S2M --save_dir save/my_S2M --dataset humanml
+python -m train.train_S2M --save_dir save/my_S2M --dataset humanml
 ```
 
 ### 5. Evaluation 
 ```bash
-python -m python -m model_eval.model_eval
+python -m model_eval.model_eval
 ```
 
