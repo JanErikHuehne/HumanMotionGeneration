@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-<<<<<<< HEAD
-  <component name="PublishConfigData">
-=======
   <component name="PublishConfigData" remoteFilesAllowedToDisappearOnAutoupload="false">
->>>>>>> S2M_with_CLIP_Image_Encoder
     <serverData>
       <paths name="xie@SL09.vc.in.tum.de:22 password">
         <serverdata>
