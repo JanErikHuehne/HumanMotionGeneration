@@ -331,13 +331,24 @@ def main():
     datapath = os.path.join(repo_dir, 'test_data')
     savepath = os.path.join(repo_dir, 'test_data', 'sketches')
     os.makedirs(savepath, exist_ok=True)
-    generate_vector_dataset(dataset_path=datapath, dataset='train2', save_directory=savepath,
+    generate_vector_dataset(dataset_path=datapath, dataset='train', save_directory=savepath,
                             kinematic_tree=[[0, 2, 5, 8, 11],
                                             [0, 1, 4, 7, 10],
                                             [0, 3, 6, 9, 12, 15],
                                             [9, 14, 17, 19, 21],
                                             [9, 13, 16, 18, 20]])
-    pass
+    generate_vector_dataset(dataset_path=datapath, dataset='val', save_directory=savepath,
+                            kinematic_tree=[[0, 2, 5, 8, 11],
+                                            [0, 1, 4, 7, 10],
+                                            [0, 3, 6, 9, 12, 15],
+                                            [9, 14, 17, 19, 21],
+                                            [9, 13, 16, 18, 20]])
+    generate_vector_dataset(dataset_path=datapath, dataset='test', save_directory=savepath,
+                            kinematic_tree=[[0, 2, 5, 8, 11],
+                                            [0, 1, 4, 7, 10],
+                                            [0, 3, 6, 9, 12, 15],
+                                            [9, 14, 17, 19, 21],
+                                            [9, 13, 16, 18, 20]])
 
 
 if __name__ == '__main__':

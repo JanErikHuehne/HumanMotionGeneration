@@ -3,11 +3,12 @@
 
 [//]: # (![teaser]&#40;https://github.com/GuyTevet/mdm-page/raw/main/static/figures/github.gif&#41;)
 
-
+#### Our repository is established on the basis of [Motion-Diffusion-Model](https://github.com/GuyTevet/motion-diffusion-model).
 
 
 ## Getting started
 
+### 1. set up environment
 Setup conda env:
 ```shell
 conda env create -f environment.yml
@@ -43,7 +44,7 @@ cd ..
 git clone https://github.com/EricGuo5513/HumanML3D.git
 unzip ./HumanML3D/HumanML3D/texts.zip -d ./HumanML3D/HumanML3D/
 cp -r HumanML3D/HumanML3D motion-diffusion-model/dataset/HumanML3D
-cd motion-diffusion-model
+cd HumanMotionGeneration
 ```
 
 
@@ -62,10 +63,16 @@ cp -r ../HumanML3D/HumanML3D ./test_data
 <details>
   <summary><b>Sketches</b></summary>
 
-**UESTC, HumanAct12** 
+**generate sketches for HumanML3D dataset** 
 ```bash
-
+python -m data_loaders.humanml.utils.plot_train
 ```
+The sketches will be saved under `./test_data/sketches`
 </details>
+
+### 3. Get pre-trained model 
+[Pre-trained model](https://drive.google.com/file/d/1nJbnQX5RLLLNsPvTX47PP6T1vko70t-9/view?usp=drive_link)
+Put this pre-trained model under `./user_output`
+
 
 ## To be finised

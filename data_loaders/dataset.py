@@ -68,7 +68,7 @@ class Sketch2MotionDataset(data.Dataset):
                     new_name_list.append(new_name)
             sketches.sort(key=lambda x: x[1])
             # for i in range(motion_length // 10 - 4):
-            """
+
             i = 0
             while i * 10 + 40 < motion_length:
             # for i in range(3)[-1:]:
@@ -80,6 +80,8 @@ class Sketch2MotionDataset(data.Dataset):
                     'motion_crop': motion_crop,
                 })
                 i += 4
+
+
             """
             # idx = np.round(np.linspace(0, len(sketches) - 1, 5)).astype(int)
             # selected = []
@@ -108,6 +110,7 @@ class Sketch2MotionDataset(data.Dataset):
                     'sketches': sketches,
                     #'motion_crop': motion_crop,
                 })
+            """
             self.data_dict2.append({'motion': motion,
                                     'sketches': sketches
             })
