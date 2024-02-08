@@ -6,6 +6,8 @@
 #### Our repository is established on the basis of [Motion-Diffusion-Model](https://github.com/GuyTevet/motion-diffusion-model).
 
 
+![example](user_output/fixed_length/user_input_2_seed10/input2_rendered.png)
+
 ## Getting started
 
 ### 1. set up environment
@@ -79,7 +81,13 @@ Put this pre-trained model under `./user_output/fixed_length`
 First, please put 5 sketches under `./user_input` and name the sketches with `'0', '1', '2', '3', '4'`
 
 ```bash
-python -m sample.generate_customized --model_path ./user_output/fixed_length/fixed_length.pth --seed 60
+python -m sample.generate_customized --model_path ./user_output/fixed_length/fixed_length.pth --seed 15
 ```
+
+#### Output example :
+
+![example](user_output/fixed_length/user_input_2_seed10/input2.png)
+
+![example](user_output/fixed_length/user_input_2_seed10/sample00_rep01_0.gif)
 
 ## To be finised

@@ -18,6 +18,16 @@ import torch as th
 # from model.rotation2xyz import Rotation2xyz as rot2xyz
 from model.rotation2xyz import Rotation2xyz
 from data_loaders.humanml.utils.plot_script3 import generate_sketches
+from transformers import CLIPProcessor, CLIPModel
+from PIL import Image
+
+# import CLIP_image_encoder
+model_name = "openai/clip-vit-base-patch16"
+processor = CLIPProcessor.from_pretrained(model_name)
+sketchEncoder = CLIPModel.from_pretrained(model_name)
+sketchEncoder.eval()
+for param in sketchEncoder.parameters():
+    param.requires_grad = False
 
 def dev():
     """
@@ -80,7 +90,7 @@ def main():
     args.batch_size = args.num_samples  # Sampling a single batch from the testset, with exactly args.num_samples
 
     print('Loading dataset...')
-    loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1, split='train')
+    loader = get_dataset_loader(datapath='test_data/humanml_opt.txt', batch_size=1, split='repo')
     total_num_samples = args.num_samples * args.num_repetitions
 
     print("Creating model and diffusion...")
@@ -92,19 +102,10 @@ def main():
 
     print(f"Loading checkpoints from [{args.model_path}]...")
     state_dict = torch.load(args.model_path, map_location='cpu')
-    x1 = []
-    x2 = []
-    print("Before loading state_dict:")
-    for param_tensor in model.state_dict():
-        print(param_tensor, "\t", model.state_dict()[param_tensor].size())
-        print(model.input_process.poseEmbedding.weight.data)
-        break
 
     # Load state_dict
-    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict['model_state_dict'], strict=False)
     assert len(unexpected_keys) == 0
-    assert all([k.startswith('clip_model.') for k in missing_keys])
-    # model.load_state_dict(state_dict)
 
     # After loading
     print("\nAfter loading state_dict:")
@@ -114,28 +115,25 @@ def main():
         print(model.input_process.poseEmbedding.weight.data)
         break
 
-    # load_model_wo_clip(model, state_dict)
+    sketch = []
+    keyframe = []
+    input_dir = os.path.join(args.model_path, os.pardir, os.pardir, os.pardir, 'user_input')
+    for filename in os.listdir(input_dir):
+        if filename.endswith('.png'):
+            # Construct the full file path
+            filepath = os.path.join(input_dir, filename)
+            # Load the image
+            image = Image.open(filepath)
+            sketch.append(image)
+            keyframe.append(int(filename.split('.')[0]) * 10)
+    img_emb = processor(images=sketch, return_tensors="pt", padding=True)
+    sketch = sketchEncoder.get_image_features(**img_emb).to(model.device)
+    keyframe = torch.tensor(keyframe).to(model.device)
+    sketch = torch.unsqueeze(sketch, dim=0)
+    keyframe = torch.unsqueeze(keyframe, dim=0)
 
-    # if args.guidance_param != 1:
-    #     model = ClassifierFreeSampleModel(model)   # wrapping model with the classifier-free sampler
-    # model.to(dist_util.dev())
     model.eval()  # disable random masking
 
-    # if is_using_data:
-    #     iterator = iter(data)
-    #     _, model_kwargs = next(iterator)
-    # else:
-    #     collate_args = [{'inp': torch.zeros(n_frames), 'tokens': None, 'lengths': n_frames}] * args.num_samples
-    #     is_t2m = any([args.input_text, args.text_prompt])
-    #     if is_t2m:
-    #         # t2m
-    #         collate_args = [dict(arg, text=txt) for arg, txt in zip(collate_args, texts)]
-    #     else:
-    #         # a2m
-    #         action = data.dataset.action_name_to_action(action_text)
-    #         collate_args = [dict(arg, action=one_action, action_text=one_action_text) for
-    #                         arg, one_action, one_action_text in zip(collate_args, action, action_text)]
-    #     _, model_kwargs = collate(collate_args)
 
     all_motions = []
     all_lengths = []
@@ -143,24 +141,7 @@ def main():
 
     for rep_i in range(args.num_repetitions):
         print(f'### Sampling [repetitions #{rep_i}]')
-        for i, (motion, sketch, keyframe) in enumerate(loader):
-        # add CFG scale to batch
-        # if args.guidance_param != 1:
-        #     model_kwargs['y']['scale'] = torch.ones(args.batch_size, device=dist_util.dev()) * args.guidance_param
-        # sketch = torch.zeros_like(sketch)
-            motion.to(dev())
-            # sketch.to(dev())
-            # sketch['pixel_values'] = torch.zeros_like(sketch['pixel_values'])
-            sketch.to(dev())
-            keyframe.to(dev())
-            # keyframe = torch.zeros_like(keyframe)
-            if i == 45:
-                xjc = 5
-                print(loader.dataset.t2m_dataset.data_dict3[i]['sketches'])
-                # motion = torch.zeros_like(motion)
-                # sketch = torch.zeros_like(sketch)
-                # keyframe = torch.zeros_like(keyframe)
-                break
+
         sample_fn = diffusion.p_sample_loop
 
         sample = sample_fn(
@@ -192,7 +173,7 @@ def main():
                                get_rotations_back=False)
         all_text.append(str(rep_i))
         all_motions.append(sample.cpu().numpy())
-        all_lengths.append(np.array([motion.shape[1]]))
+        all_lengths.append(np.array([max_frames]))
 
         print(f"created {len(all_motions) * args.batch_size} samples")
 
