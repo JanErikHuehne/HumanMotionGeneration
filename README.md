@@ -90,4 +90,4 @@ python -m sample.generate_customized --model_path ./user_output/fixed_length/fix
 
 ![example](user_output/fixed_length/user_input_2_seed10/sample00_rep01_0.gif)
 
-## To be finised
+## To be finished
