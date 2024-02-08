@@ -71,8 +71,15 @@ The sketches will be saved under `./test_data/sketches`
 </details>
 
 ### 3. Get pre-trained model 
-[Pre-trained model](https://drive.google.com/file/d/1nJbnQX5RLLLNsPvTX47PP6T1vko70t-9/view?usp=drive_link)
-Put this pre-trained model under `./user_output`
+[Pre-trained model](https://drive.google.com/drive/folders/1AHbj1Ma7qvuAKkHQ8RrkkGZ6Tce2CKdn?usp=drive_link)
+Put this pre-trained model under `./user_output/fixed_length`
 
+
+### Generate motion with customized input 
+First, please put 5 sketches under `./user_input` and name the sketches with `'0', '1', '2', '3', '4'`
+
+```bash
+python -m sample.generate_customized --model_path ./user_output/fixed_length/fixed_length.pth --seed 60
+```
 
 ## To be finised
