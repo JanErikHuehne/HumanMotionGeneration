@@ -1,3 +1,3 @@
 ## Body models
 
-Put SMPL models here (full instractions in the main README)
+Put SMPL models here (full instructions in the main README)
